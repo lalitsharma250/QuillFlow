@@ -82,7 +82,7 @@ Infrastructure:
 
 ```bash
 # Clone
-git clone https://github.com/YOUR_USERNAME/quillflow.git
+git clone https://github.com/lalitsharma250/quillflow.git
 cd quillflow
 
 # Configure
@@ -107,7 +107,7 @@ Password: Admin@123
 API Key:  (shown during seed script)
 
 ### One-Command setup
-
+```bash
 # Stop all services
 docker compose -f docker/docker-compose.yml down
 
@@ -116,7 +116,7 @@ docker compose -f docker/docker-compose.yml down -v
 
 # Restart
 docker compose -f docker/docker-compose.yml --env-file .env up -d
-
+```
 
 ## 💻 Local Development (Without Docker)
 
