@@ -419,7 +419,7 @@ pytest -v --cov=app --cov-report=term-missing
 
 ## 📄 License
 
-MIT License —
+MIT License — see LICENSE for details.
 
 ```
 Copyright (c) 2026 lalitsharma250
