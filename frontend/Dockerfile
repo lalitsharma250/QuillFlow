@@ -12,9 +12,14 @@ server {
     listen 3000;
     root /usr/share/nginx/html;
     index index.html;
+
+    # Increase upload size limit
+    client_max_body_size 50M;
+
     location / {
         try_files $uri $uri/ /index.html;
     }
+
     location /v1/ {
         proxy_pass http://api:8000;
         proxy_http_version 1.1;
@@ -25,10 +30,13 @@ server {
         proxy_cache off;
         chunked_transfer_encoding on;
         proxy_read_timeout 300s;
+        client_max_body_size 50M;
     }
+
     location /health {
         proxy_pass http://api:8000;
     }
+
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
         expires 30d;
         add_header Cache-Control "public, immutable";
