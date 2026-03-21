@@ -1,8 +1,20 @@
-# QuillFlow
+# 🚀 QuillFlow
 
-**Production-grade Agentic RAG Content Generation System**
+<p align="center">
+  <b>Production-grade Agentic RAG Content Generation System</b>
+</p>
 
-QuillFlow is a full-stack application that combines Retrieval-Augmented Generation (RAG) with an agentic content pipeline to generate accurate, cited responses from your document knowledge base.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12-blue?logo=python"/>
+  <img src="https://img.shields.io/badge/FastAPI-Backend-green?logo=fastapi"/>
+  <img src="https://img.shields.io/badge/React-Frontend-61DAFB?logo=react"/>
+  <img src="https://img.shields.io/badge/Docker-Containerized-blue?logo=docker"/>
+  <img src="https://img.shields.io/badge/License-MIT-yellow"/>
+</p>
+
+<p align="center">
+  <i>Agentic RAG system with hybrid retrieval, multi-step reasoning, and enterprise-grade architecture</i>
+</p>
 
 ## ✨ Key Features
 
@@ -153,6 +165,24 @@ npm run dev
 ```
 
 ---
+## 📸 Screenshots
+
+### 🔐 Authentication
+<p align="center">
+  <img src="screenshots/signin.png" width="45%"/>
+</p>
+
+### 💬 Chat & Documents
+<p align="center">
+  <img src="screenshots/chat.png" width="45%"/>
+  <img src="screenshots/documents.png" width="45%"/>
+</p>
+
+### 🛠️ Admin & Theme
+<p align="center">
+  <img src="screenshots/admin_dashboard.png" width="45%"/>
+  <img src="screenshots/light_theme.png" width="45%"/>
+</p>
 
 ## 📊 API Endpoints (30+)
 
