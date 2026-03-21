@@ -2,7 +2,7 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import type { ChatMessage } from "@/lib/types"
 import { useAuthStore } from "./authStore"
-
+import { generateId } from "@/lib/utils"
 interface Conversation {
   id: string
   title: string
@@ -44,7 +44,7 @@ export const useChatStore = create<ChatState>()(persist((set, get) => {
     },
 
     createConversation() {
-      const id = crypto.randomUUID()
+      const id = generateId()
       const uid = getUserId()
       const conv: Conversation = { id, title: "New Chat", messages: [], created_at: new Date().toISOString(), user_id: uid }
       set((s) => ({ conversations: [conv, ...s.conversations], activeConversationId: id }))

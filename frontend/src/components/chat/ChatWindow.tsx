@@ -6,6 +6,7 @@ import type { ChatMessage, StreamEvent, Source, TokenUsage } from "@/lib/types"
 import MessageBubble from "./MessageBubble"
 import StreamingMessage from "./StreamingMessage"
 import ChatInput from "./ChatInput"
+import { generateId } from "@/lib/utils"
 
 export default function ChatWindow() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -35,7 +36,7 @@ export default function ChatWindow() {
     }
 
     const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: generateId(),
       role: "user",
       content: query,
       created_at: new Date().toISOString(),
@@ -55,7 +56,7 @@ export default function ChatWindow() {
     usageRef.current = null
     queryTypeRef.current = "simple"
 
-    const assistantId = crypto.randomUUID()
+    const assistantId = generateId()
     const savedConvId = convId
 
     abortRef.current = chatApi.streamQuery(

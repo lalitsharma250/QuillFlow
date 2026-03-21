@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-
+import { generateId } from "@/lib/utils"
 interface Toast {
   id: string
   message: string
@@ -21,7 +21,7 @@ export function toast(message: any, type: 'success' | 'error' | 'info' = 'info')
     msg = JSON.stringify(message)
   }
 
-  const t: Toast = { id: crypto.randomUUID(), message: msg, type }
+  const t: Toast = { id: generateId(), message: msg, type }
   toastListeners.forEach(fn => fn(t))
 }
 
