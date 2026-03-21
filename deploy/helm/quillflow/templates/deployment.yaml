@@ -1,0 +1,145 @@
+# ══════════════════════════════════════════════════════════
+# API Deployment
+# ══════════════════════════════════════════════════════════
+# A Deployment tells Kubernetes:
+#   "Run {{ .Values.api.replicaCount }} copies of this Pod"
+#   "If one crashes, restart it automatically"
+#   "When I update the image, do a rolling update (zero downtime)"
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api
+  labels:
+    app: quillflow
+    component: api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      app: quillflow
+      component: api
+  # Rolling update strategy — replace pods one at a time
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0        # Never have 0 running pods
+      maxSurge: 1              # Add 1 new pod before removing old
+  template:
+    metadata:
+      labels:
+        app: quillflow
+        component: api
+    spec:
+      # Security context — run as non-root
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      containers:
+        - name: api
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.api.port }}
+              protocol: TCP
+
+          # Environment variables from ConfigMap and Secrets
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-config
+            - secretRef:
+                name: {{ .Release.Name }}-secrets
+
+          # Resource requests and limits
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+
+          # Liveness probe — "Is the process alive?"
+          # If this fails, Kubernetes RESTARTS the pod
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.api.port }}
+            initialDelaySeconds: 30    # Wait 30s before first check
+            periodSeconds: 15          # Check every 15s
+            timeoutSeconds: 5
+            failureThreshold: 3        # Restart after 3 failures
+
+          # Readiness probe — "Is the pod ready to receive traffic?"
+          # If this fails, Kubernetes STOPS sending traffic (but doesn't restart)
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: {{ .Values.api.port }}
+            initialDelaySeconds: 40    # Embedding model takes time to load
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          # Startup probe — "Has the pod finished starting?"
+          # Protects slow-starting containers from being killed
+          startupProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.api.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30       # 30 * 5s = 150s max startup time
+
+---
+# ══════════════════════════════════════════════════════════
+# Worker Deployment
+# ══════════════════════════════════════════════════════════
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-worker
+  labels:
+    app: quillflow
+    component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      app: quillflow
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: quillflow
+        component: worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      containers:
+        - name: worker
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+
+          # Worker has no HTTP port — it pulls jobs from Redis
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-config
+            - secretRef:
+                name: {{ .Release.Name }}-secrets
+
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+
+          # No HTTP probes for worker — use exec probe instead
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import redis; r = redis.Redis.from_url('${QUILL_REDIS_URL}'); r.ping()"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3

@@ -1,0 +1,57 @@
+# ══════════════════════════════════════════════════════════
+# Files to EXCLUDE from Docker build context
+# Without this, Docker copies EVERYTHING to the build daemon
+# (including .git, node_modules, __pycache__, etc.)
+# ══════════════════════════════════════════════════════════
+
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.eggs
+dist
+build
+*.egg
+
+# Virtual environments
+.venv
+venv
+env
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Docker (don't recursively include docker files)
+docker/
+
+# Tests and dev files
+tests/
+.pytest_cache
+.coverage
+htmlcov
+eval_report.json
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Environment files (NEVER include secrets in images)
+.env
+.env.*
+!.env.example
+
+# Deployment configs (not needed in app image)
+deploy/
+
+# OS files
+.DS_Store
+Thumbs.db

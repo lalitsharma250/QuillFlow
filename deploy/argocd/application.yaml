@@ -1,0 +1,55 @@
+# ══════════════════════════════════════════════════════════
+# ArgoCD Application — GitOps Deployment
+# ══════════════════════════════════════════════════════════
+#
+# ArgoCD watches this repo and automatically deploys changes.
+#
+# Flow:
+#   1. Developer pushes code to main
+#   2. CI builds new Docker image
+#   3. Developer updates image tag in values.yaml (or automated)
+#   4. ArgoCD detects the change in git
+#   5. ArgoCD applies the new Helm chart to the cluster
+#   6. Kubernetes does a rolling update (zero downtime)
+#
+# Install ArgoCD:
+#   kubectl create namespace argocd
+#   kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+#
+# Apply this file:
+#   kubectl apply -f deploy/argocd/application.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: quillflow
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/your-org/quillflow.git
+    targetRevision: main
+    path: deploy/helm/quillflow
+    helm:
+      valueFiles:
+        - values.yaml
+        # Environment-specific overrides
+        # - values-prod.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: quillflow
+
+  syncPolicy:
+    automated:
+      prune: true              # Delete resources removed from git
+      selfHeal: true           # Revert manual changes to match git
+    syncOptions:
+      - CreateNamespace=true   # Create namespace if it doesn't exist
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

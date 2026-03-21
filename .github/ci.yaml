@@ -1,0 +1,254 @@
+# ══════════════════════════════════════════════════════════
+# QuillFlow CI Pipeline
+# ══════════════════════════════════════════════════════════
+#
+# Triggered on:
+#   - Push to main branch
+#   - Pull requests to main
+#
+# Steps:
+#   1. Lint + type check
+#   2. Unit tests
+#   3. Integration tests (with services)
+#   4. Build Docker image
+#   5. Push to registry (only on main)
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ── Job 1: Lint & Type Check ─────────────────────────
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+
+      - name: Run ruff linter
+        run: ruff check .
+
+      - name: Run ruff formatter check
+        run: ruff format --check .
+
+      - name: Run mypy type checker
+        run: mypy app/ --ignore-missing-imports
+
+  # ── Job 2: Unit Tests ────────────────────────────────
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run unit tests
+        env:
+          QUILL_LLM_API_KEY: "test-key-not-real"
+        run: |
+          pytest tests/unit/ -v \
+            --cov=app \
+            --cov-report=xml \
+            --cov-report=term-missing
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: coverage.xml
+          fail_ci_if_error: false
+
+  # ── Job 3: Integration Tests ─────────────────────────
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    # Start services for integration tests
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: quillflow
+          POSTGRES_PASSWORD: quillflow_dev
+          POSTGRES_DB: quillflow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      qdrant:
+        image: qdrant/qdrant:v1.12.4
+        ports:
+          - 6333:6333
+          - 6334:6334
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run integration tests
+        env:
+          QUILL_LLM_API_KEY: "test-key-not-real"
+          QUILL_POSTGRES_HOST: localhost
+          QUILL_POSTGRES_PORT: "5432"
+          QUILL_POSTGRES_USER: quillflow
+          QUILL_POSTGRES_PASSWORD: quillflow_dev
+          QUILL_POSTGRES_DB: quillflow
+          QUILL_REDIS_URL: "redis://localhost:6379/0"
+          QUILL_QDRANT_HOST: localhost
+          QUILL_QDRANT_PORT: "6333"
+        run: |
+          pytest tests/integration/ -v \
+            --cov=app \
+            --cov-report=term-missing
+
+  # ── Job 4: Build & Push Docker Image ─────────────────
+  build:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    # Only build on push to main (not on PRs)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.worker
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+		  
+		  
+local dev :
+# 1. Clone and setup
+git clone https://github.com/your-org/quillflow.git
+cd quillflow
+cp .env.example .env
+# Edit .env — set QUILL_LLM_API_KEY
+
+# 2. Start infrastructure
+make docker-up
+
+# 3. Wait for services to be healthy
+make docker-ps
+
+# 4. Run database migrations
+make db-upgrade
+
+# 5. Seed sample data
+python -m scripts.seed_qdrant --sample-data
+
+# 6. Test the API
+curl http://localhost:8000/health
+curl -X POST http://localhost:8000/v1/chat \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is RAG?", "stream": false}'
+
+# 7. Run tests
+make test          # Unit tests
+make test-all      # All tests
+
+prod deployment :
+# 1. Build and push images
+docker build -t ghcr.io/your-org/quillflow:v0.1.0 -f docker/Dockerfile .
+docker push ghcr.io/your-org/quillflow:v0.1.0
+
+# 2. Create secrets in Kubernetes
+kubectl create namespace quillflow
+kubectl create secret generic quillflow-secrets \
+  --namespace quillflow \
+  --from-literal=QUILL_LLM_API_KEY=sk-your-real-key \
+  --from-literal=QUILL_POSTGRES_PASSWORD=strong-password
+
+# 3. Install with Helm
+helm install quillflow deploy/helm/quillflow \
+  --namespace quillflow \
+  --set api.image.tag=v0.1.0 \
+  --set worker.image.tag=v0.1.0
+
+# 4. Verify
+kubectl get pods -n quillflow
+kubectl logs -f deployment/quillflow-api -n quillflow
+
+# 5. For subsequent updates (GitOps with ArgoCD)
+kubectl apply -f deploy/argocd/application.yaml
+# ArgoCD handles everything from here

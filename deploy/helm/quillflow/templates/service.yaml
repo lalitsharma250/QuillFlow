@@ -1,0 +1,49 @@
+# ══════════════════════════════════════════════════════════
+# Services — Route traffic to pods
+# ══════════════════════════════════════════════════════════
+#
+# A Service is a stable network endpoint that routes to pods.
+# Pods come and go (scaling, restarts), but the Service IP stays the same.
+# Other pods connect to "quillflow-api:8000" — the Service handles routing.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-api
+  labels:
+    app: quillflow
+    component: api
+spec:
+  type: ClusterIP              # Internal only (Ingress handles external)
+  ports:
+    - port: {{ .Values.api.port }}
+      targetPort: {{ .Values.api.port }}
+      protocol: TCP
+      name: http
+  selector:
+    app: quillflow
+    component: api
+
+---
+# Qdrant Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-qdrant
+  labels:
+    app: quillflow
+    component: qdrant
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.qdrant.ports.rest }}
+      targetPort: {{ .Values.qdrant.ports.rest }}
+      protocol: TCP
+      name: rest
+    - port: {{ .Values.qdrant.ports.grpc }}
+      targetPort: {{ .Values.qdrant.ports.grpc }}
+      protocol: TCP
+      name: grpc
+  selector:
+    app: quillflow
+    component: qdrant

@@ -1,0 +1,70 @@
+# ══════════════════════════════════════════════════════════
+# Qdrant StatefulSet
+# ══════════════════════════════════════════════════════════
+#
+# StatefulSet vs Deployment:
+#   Deployment: Pods are interchangeable (stateless). Good for API servers.
+#   StatefulSet: Each pod has a stable identity and persistent storage.
+#                Good for databases. Pod "qdrant-0" always gets the same disk.
+#
+# Why StatefulSet for Qdrant?
+#   Qdrant stores vector data on disk. If the pod restarts,
+#   it needs the SAME disk to avoid re-indexing everything.
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-qdrant
+  labels:
+    app: quillflow
+    component: qdrant
+spec:
+  serviceName: {{ .Release.Name }}-qdrant
+  replicas: {{ .Values.qdrant.replicaCount }}
+  selector:
+    matchLabels:
+      app: quillflow
+      component: qdrant
+  template:
+    metadata:
+      labels:
+        app: quillflow
+        component: qdrant
+    spec:
+      containers:
+        - name: qdrant
+          image: "{{ .Values.qdrant.image.repository }}:{{ .Values.qdrant.image.tag }}"
+          ports:
+            - containerPort: {{ .Values.qdrant.ports.rest }}
+              name: rest
+            - containerPort: {{ .Values.qdrant.ports.grpc }}
+              name: grpc
+          resources:
+            {{- toYaml .Values.qdrant.resources | nindent 12 }}
+          volumeMounts:
+            - name: qdrant-storage
+              mountPath: /qdrant/storage
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.qdrant.ports.rest }}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.qdrant.ports.rest }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+  # Persistent Volume Claim template
+  # Each pod gets its own persistent disk
+  volumeClaimTemplates:
+    - metadata:
+        name: qdrant-storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.qdrant.storage.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.qdrant.storage.size }}

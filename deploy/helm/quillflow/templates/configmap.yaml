@@ -1,0 +1,55 @@
+# ══════════════════════════════════════════════════════════
+# ConfigMap — Non-secret configuration
+# ══════════════════════════════════════════════════════════
+#
+# ConfigMaps store non-sensitive configuration.
+# Mounted as environment variables in pods.
+# Changes require pod restart (or use a sidecar for hot-reload).
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  labels:
+    app: quillflow
+data:
+  QUILL_APP_NAME: "QuillFlow"
+  QUILL_DEBUG: "{{ .Values.api.env.QUILL_DEBUG }}"
+  QUILL_LOG_LEVEL: "{{ .Values.api.env.QUILL_LOG_LEVEL }}"
+  QUILL_API_PORT: "{{ .Values.api.port }}"
+  QUILL_POSTGRES_HOST: "{{ .Release.Name }}-postgresql"
+  QUILL_POSTGRES_PORT: "5432"
+  QUILL_POSTGRES_USER: "quillflow"
+  QUILL_POSTGRES_DB: "quillflow"
+  QUILL_QDRANT_HOST: "{{ .Release.Name }}-qdrant"
+  QUILL_QDRANT_PORT: "{{ .Values.qdrant.ports.rest }}"
+  QUILL_REDIS_URL: "redis://{{ .Release.Name }}-redis-master:6379/0"
+  QUILL_EMBEDDING_MODEL_NAME: "BAAI/bge-large-en-v1.5"
+  QUILL_LLM_PROVIDER_BASE_URL: "https://openrouter.ai/api/v1"
+
+---
+# ══════════════════════════════════════════════════════════
+# Secret — Sensitive configuration
+# ══════════════════════════════════════════════════════════
+#
+# Secrets are base64-encoded and stored encrypted in etcd.
+# NEVER commit real secrets to git.
+# In production, use External Secrets Operator or Vault.
+#
+# Create secrets manually:
+#   kubectl create secret generic quillflow-secrets \
+#     --from-literal=QUILL_LLM_API_KEY=sk-... \
+#     --from-literal=QUILL_POSTGRES_PASSWORD=...
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-secrets
+  labels:
+    app: quillflow
+type: Opaque
+# Placeholder — override with real values at deploy time
+# helm install quillflow . --set secrets.llmApiKey=sk-...
+data:
+  QUILL_LLM_API_KEY: "{{ .Values.secrets.llmApiKey | default "" | b64enc }}"
+  QUILL_POSTGRES_PASSWORD: "{{ .Values.secrets.postgresPassword | default "" | b64enc }}"
