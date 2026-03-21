@@ -301,13 +301,13 @@ User Query: "What is RAG?"
 [Retriever] → Query rewrite (if follow-up) → Hybrid search → Rerank
      │
      ├── Simple path ──────────────────────────────────┐
-     │                                                  │
-     ├── Complex path:                                  │
+     │                                                 │
+     ├── Complex path:                                 │
      │   [Planner] → 2-3 sections with word budgets    │
      │   [Writers] → Parallel LLM calls per section    │
      │   [Reducer] → Merge + polish                    │
-     │                                                  │
-     ▼                                                  ▼
+     │                                                 │
+     ▼                                                 ▼
 [Reducer] → Generate answer with [1], [2] citations
      │
      ▼
