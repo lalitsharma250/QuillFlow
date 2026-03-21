@@ -1,8 +1,20 @@
-# QuillFlow
+# 🚀 QuillFlow
 
-**Production-grade Agentic RAG Content Generation System**
+<p align="center">
+  <b>Production-grade Agentic RAG Content Generation System</b>
+</p>
 
-QuillFlow is a full-stack application that combines Retrieval-Augmented Generation (RAG) with an agentic content pipeline to generate accurate, cited responses from your document knowledge base.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12-blue?logo=python"/>
+  <img src="https://img.shields.io/badge/FastAPI-Backend-green?logo=fastapi"/>
+  <img src="https://img.shields.io/badge/React-Frontend-61DAFB?logo=react"/>
+  <img src="https://img.shields.io/badge/Docker-Containerized-blue?logo=docker"/>
+  <img src="https://img.shields.io/badge/License-MIT-yellow"/>
+</p>
+
+<p align="center">
+  <i>Agentic RAG system with hybrid retrieval, multi-step reasoning, and enterprise-grade architecture</i>
+</p>
 
 ## ✨ Key Features
 
@@ -153,6 +165,24 @@ npm run dev
 ```
 
 ---
+## 📸 Screenshots
+
+### 🔐 Authentication
+<p align="center">
+  <img src="screenshots/signin.png" width="45%"/>
+</p>
+
+### 💬 Chat & Documents
+<p align="center">
+  <img src="screenshots/chat.png" width="45%"/>
+  <img src="screenshots/documents.png" width="45%"/>
+</p>
+
+### 🛠️ Admin & Theme
+<p align="center">
+  <img src="screenshots/admin_dashboard.png" width="45%"/>
+  <img src="screenshots/light_theme.png" width="45%"/>
+</p>
 
 ## 📊 API Endpoints (30+)
 
@@ -271,13 +301,13 @@ User Query: "What is RAG?"
 [Retriever] → Query rewrite (if follow-up) → Hybrid search → Rerank
      │
      ├── Simple path ──────────────────────────────────┐
-     │                                                  │
-     ├── Complex path:                                  │
+     │                                                 │
+     ├── Complex path:                                 │
      │   [Planner] → 2-3 sections with word budgets    │
      │   [Writers] → Parallel LLM calls per section    │
      │   [Reducer] → Merge + polish                    │
-     │                                                  │
-     ▼                                                  ▼
+     │                                                 │
+     ▼                                                 ▼
 [Reducer] → Generate answer with [1], [2] citations
      │
      ▼
@@ -389,7 +419,26 @@ pytest -v --cov=app --cov-report=term-missing
 
 ## 📄 License
 
-MIT License — see `LICENSE` for details.
+MIT License — see LICENSE for details.
 
 ```
+Copyright (c) 2026 lalitsharma250
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
