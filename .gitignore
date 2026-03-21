@@ -90,7 +90,6 @@ dmypy.json
 *.pt
 *.onnx
 *.safetensors
-models/
 .cache/
 huggingface/
 
