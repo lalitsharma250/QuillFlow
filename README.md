@@ -82,7 +82,7 @@ Infrastructure:
 
 ```bash
 # Clone
-git clone https://github.com/YOUR_USERNAME/quillflow.git
+git clone https://github.com/lalitsharma250/quillflow.git
 cd quillflow
 
 # Configure
