@@ -51,11 +51,19 @@ class Settings(BaseSettings):
     embedding_batch_size: int = 64
 
     # ── Qdrant ─────────────────────────────────────────
+    # Support both local (host/port) and cloud (URL) configurations
+    qdrant_url: str | None = None  # Full URL for Qdrant Cloud (e.g., https://xxx.qdrant.io)
+    qdrant_api_key: SecretStr | None = None  # API key for Qdrant Cloud
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
     qdrant_grpc_port: int = 6334
     qdrant_collection_name: str = "quillflow_chunks"
-    qdrant_prefer_grpc: bool = True
+    qdrant_prefer_grpc: bool = True  # Use gRPC for local, HTTP for cloud
+
+    @property
+    def qdrant_use_cloud(self) -> bool:
+        """True if Qdrant Cloud is configured."""
+        return self.qdrant_url is not None and self.qdrant_api_key is not None
 
     # ── Postgres ───────────────────────────────────────
     postgres_host: str = "localhost"
@@ -63,14 +71,17 @@ class Settings(BaseSettings):
     postgres_user: str = "quillflow"
     postgres_password: SecretStr = Field(default=SecretStr("quillflow_dev"))
     postgres_db: str = "quillflow"
+    postgres_ssl_mode: str = "prefer"  # 'require' for Neon/cloud, 'disable' for local
 
     @property
     def postgres_dsn(self) -> str:
         """Async Postgres connection string for SQLAlchemy."""
         password = self.postgres_password.get_secret_value()
+        ssl_param = f"?ssl={self.postgres_ssl_mode}" if self.postgres_ssl_mode != "disable" else ""
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+            f"{ssl_param}"
         )
 
     # ── Redis ──────────────────────────────────────────
@@ -80,20 +91,27 @@ class Settings(BaseSettings):
 
     @property
     def worker_redis_settings(self) -> dict:
-        """Parse redis_url into ARQ-compatible dict."""
+        """Parse redis_url into ARQ-compatible dict. Supports both redis:// and rediss:// (TLS)."""
         from urllib.parse import urlparse
 
         parsed = urlparse(self.redis_url)
-        return {
+        settings_dict = {
             "host": parsed.hostname or "localhost",
             "port": parsed.port or 6379,
             "database": int(parsed.path.lstrip("/") or 0),
         }
-    
+        # Add password if present
+        if parsed.password:
+            settings_dict["password"] = parsed.password
+        # Enable SSL for rediss:// URLs (Upstash, etc.)
+        if parsed.scheme == "rediss":
+            settings_dict["ssl"] = True
+        return settings_dict
+
     # ── JWT Authentication ─────────────────────────────
     jwt_secret_key: str = "change-this-to-a-random-secret-in-production"
-    jwt_access_token_hours: int = 1          # Access token expires in 1 hour
-    jwt_refresh_token_days: int = 7          # Refresh token expires in 7 days
+    jwt_access_token_hours: int = 1
+    jwt_refresh_token_days: int = 7
 
     @field_validator("jwt_secret_key")
     @classmethod
@@ -108,7 +126,8 @@ class Settings(BaseSettings):
         if len(v) < 16:
             raise ValueError("JWT secret key must be at least 16 characters")
         return v
-     # ── Worker ─────────────────────────────────────────
+
+    # ── Worker ─────────────────────────────────────────
     worker_concurrency: int = 5
     worker_max_jobs: int = 10
     worker_job_timeout_seconds: int = 3600
@@ -117,13 +136,13 @@ class Settings(BaseSettings):
     # ── Guardrails ─────────────────────────────────────
     max_plan_sections: int = 5
     max_total_tokens_per_request: int = 20_000
-    max_input_length: int = 10_000          # Characters
+    max_input_length: int = 10_000
 
     # ── Retrieval ──────────────────────────────────────
-    retrieval_top_k: int = 10               # Chunks to retrieve
-    reranker_top_k: int = 5                 # Chunks after reranking
-    chunk_size: int = 512                   # Tokens per chunk
-    chunk_overlap: int = 64                 # Token overlap between chunks
+    retrieval_top_k: int = 10
+    reranker_top_k: int = 5
+    chunk_size: int = 512
+    chunk_overlap: int = 64
 
     # ── Evaluation Thresholds ──────────────────────────
     eval_faithfulness_threshold: float = 0.7
@@ -132,21 +151,17 @@ class Settings(BaseSettings):
 
     # ── Data Leakage Prevention ────────────────────────
     dlp_enabled: bool = True
-    dlp_strip_pii_before_llm: bool = True       # Strip PII from prompts
-    dlp_scan_output: bool = True                 # Scan LLM output for leaked PII
-    dlp_allowed_llm_providers: list[str] = [     # Which providers can receive data
+    dlp_strip_pii_before_llm: bool = True
+    dlp_scan_output: bool = True
+    dlp_allowed_llm_providers: list[str] = [
         "anthropic",
         "openai",
     ]
     dlp_block_sensitive_topics: bool = False
-    
-    relevancy_threshold: float = 0.1  # Minimum score to include in sources (for both API and UI)
+
+    relevancy_threshold: float = 0.1
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """
-    Cached settings singleton.
-    Call this instead of Settings() directly — avoids re-reading .env on every call.
-    """
     return Settings()

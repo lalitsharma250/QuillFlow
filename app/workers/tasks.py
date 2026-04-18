@@ -52,12 +52,22 @@ async def on_worker_startup(ctx: dict) -> None:
     ctx["db_engine"] = engine
     ctx["db_session_factory"] = async_sessionmaker(engine, expire_on_commit=False)
 
-    # ── Initialize Qdrant client ───────────────────────
-    ctx["qdrant_client"] = AsyncQdrantClient(
-        host=settings.qdrant_host,
-        port=settings.qdrant_port,
-        prefer_grpc=settings.qdrant_prefer_grpc,
-    )
+    # ── Initialize Qdrant client (cloud or local) ─────
+    if settings.qdrant_use_cloud:
+        logger.info("connecting_qdrant_cloud", url=settings.qdrant_url)
+        ctx["qdrant_client"] = AsyncQdrantClient(
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key.get_secret_value(),
+            prefer_grpc=False,
+            timeout=30,
+        )
+    else:
+        logger.info("connecting_qdrant_local", host=settings.qdrant_host)
+        ctx["qdrant_client"] = AsyncQdrantClient(
+            host=settings.qdrant_host,
+            port=settings.qdrant_port,
+            prefer_grpc=settings.qdrant_prefer_grpc,
+        )
 
     # ── Initialize embedding model ─────────────────────
     ctx["embedder"] = EmbeddingService(model_name=settings.embedding_model_name)

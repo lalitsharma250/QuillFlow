@@ -117,3 +117,9 @@ huggingface/
 *.tmp
 *.temp
 *.orig
+
+
+deployment-credentials.txt
+*.credentials
+*.env
+!.env.example

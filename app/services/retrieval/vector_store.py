@@ -493,16 +493,28 @@ class VectorStoreService:
 async def init_qdrant(app: FastAPI) -> None:
     """
     Initialize Qdrant client and ensure collection exists.
-    Called during FastAPI lifespan startup.
+    Supports both local Qdrant (host/port) and Qdrant Cloud (URL + API key).
     """
     settings = get_settings()
 
-    client = AsyncQdrantClient(
-        host=settings.qdrant_host,
-        port=settings.qdrant_port,
-        grpc_port=settings.qdrant_grpc_port,
-        prefer_grpc=settings.qdrant_prefer_grpc,
-    )
+    if settings.qdrant_use_cloud:
+        # Qdrant Cloud — use URL + API key
+        logger.info("connecting_qdrant_cloud", url=settings.qdrant_url)
+        client = AsyncQdrantClient(
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key.get_secret_value(),
+            prefer_grpc=False,  # Cloud free tier doesn't support gRPC
+            timeout=30,
+        )
+    else:
+        # Local Qdrant — use host/port
+        logger.info("connecting_qdrant_local", host=settings.qdrant_host, port=settings.qdrant_port)
+        client = AsyncQdrantClient(
+            host=settings.qdrant_host,
+            port=settings.qdrant_port,
+            grpc_port=settings.qdrant_grpc_port,
+            prefer_grpc=settings.qdrant_prefer_grpc,
+        )
 
     service = VectorStoreService(client=client)
     await service.ensure_collection()
