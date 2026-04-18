@@ -73,7 +73,7 @@ Infrastructure:
 | Backend | FastAPI, Pydantic v2, SQLAlchemy 2.0 |
 | Frontend | React 18, Vite, Tailwind CSS |
 | Orchestration | LangGraph (stateful DAG) |
-| LLM | Claude (Haiku 4.5 + Sonnet 4) via Databricks |
+| LLM | Claude (Haiku 4.5 + Sonnet 4) |
 | Embeddings | BGE-large-en-v1.5 (self-hosted, 1024d) |
 | Reranker | ms-marco-MiniLM-L-6-v2 (cross-encoder) |
 | Vector DB | Qdrant (HNSW, gRPC) |
