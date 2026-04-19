@@ -32,6 +32,35 @@ from starlette.middleware.cors import CORSMiddleware
 
 logger = structlog.get_logger(__name__)
 
+async def _run_migrations():
+    """Run Alembic migrations on startup (production deployments)."""
+    import asyncio
+    
+    settings = get_settings()
+    
+    # Skip in local dev (use Docker migrate container)
+    if settings.debug:
+        return
+    
+    try:
+        # Run alembic upgrade head in a subprocess
+        proc = await asyncio.create_subprocess_exec(
+            "alembic", "upgrade", "head",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        
+        if proc.returncode == 0:
+            logger.info("migrations_applied", output=stdout.decode()[:500])
+        else:
+            logger.error(
+                "migration_failed",
+                stderr=stderr.decode()[:500],
+                returncode=proc.returncode,
+            )
+    except Exception as e:
+        logger.error("migration_error", error=str(e))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -63,7 +92,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     # ── Startup ────────────────────────────────────────
-
+    
+    await _run_migrations()
     # 1. Postgres
     await init_db(app)
     logger.info("postgres_connected", host=settings.postgres_host)
