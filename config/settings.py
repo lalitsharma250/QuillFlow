@@ -45,10 +45,15 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 60
     llm_max_tokens_per_request: int = 4096
 
-    # ── Embeddings ─────────────────────────────────────
-    embedding_model_name: str = "BAAI/bge-large-en-v1.5"
+     # ── Voyage AI (Embeddings + Reranking) ─────────────
+    voyage_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="Voyage AI API key (embeddings + reranking)",
+    )
+    embedding_model_name: str = "voyage-3"
     embedding_dimensions: int = 1024
-    embedding_batch_size: int = 64
+    embedding_batch_size: int = 128
+    reranker_model_name: str = "rerank-2"
 
     # ── Qdrant ─────────────────────────────────────────
     # Support both local (host/port) and cloud (URL) configurations

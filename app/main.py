@@ -80,15 +80,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_embedder(app)
     logger.info("embedding_model_loaded", model=settings.embedding_model_name)
 
-    # 5. Reranker model (optional — gracefully degrades if unavailable)
+    # 5. Reranker service (Voyage AI — gracefully degrades if unavailable)
     try:
         reranker = RerankerService()
         await reranker.load()
         app.state.reranker = reranker
-        logger.info("reranker_model_loaded", model=reranker.model_name)
+        logger.info("reranker_ready", model=reranker.model_name)
     except Exception as e:
         logger.warning(
-            "reranker_load_failed_using_noop",
+            "reranker_init_failed_using_noop",
             error=str(e),
         )
         app.state.reranker = NoOpReranker()
@@ -163,6 +163,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     if app.state.arq_pool is not None:
         await app.state.arq_pool.close()
+    
+    # Close embedder and reranker HTTP clients
+    if hasattr(app.state, "embedder"):
+        await app.state.embedder.close()
+    if hasattr(app.state, "reranker") and hasattr(app.state.reranker, "close"):
+        await app.state.reranker.close()
+    
     await close_redis(app)
     await close_qdrant(app)
     await close_db(app)

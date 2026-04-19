@@ -51,6 +51,7 @@ class RetrievalMethod(str, Enum):
     DENSE = "dense"    # Vector similarity search
     SPARSE = "sparse"  # BM25 / keyword search
     HYBRID = "hybrid"  # Combined dense + sparse
+    RERANKED = "reranked" # After cross-encoder reranking
 
 class JobStatus(str, Enum):
     """Tracks a bulk ingestion job through its lifecycle."""

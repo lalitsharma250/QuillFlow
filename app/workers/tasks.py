@@ -36,7 +36,6 @@ logger = structlog.get_logger(__name__)
 async def on_worker_startup(ctx: dict) -> None:
     """
     Called once when the worker process starts.
-    Initialize shared resources (DB pool, Qdrant client, embedder).
     """
     setup_logging()
     settings = get_settings()
@@ -69,7 +68,7 @@ async def on_worker_startup(ctx: dict) -> None:
             prefer_grpc=settings.qdrant_prefer_grpc,
         )
 
-    # ── Initialize embedding model ─────────────────────
+    # ── Initialize embedding service (Voyage AI) ──────
     ctx["embedder"] = EmbeddingService(model_name=settings.embedding_model_name)
     await ctx["embedder"].load()
 
@@ -86,8 +85,10 @@ async def on_worker_shutdown(ctx: dict) -> None:
     if "qdrant_client" in ctx:
         await ctx["qdrant_client"].close()
 
-    logger.info("worker_stopped")
+    if "embedder" in ctx and hasattr(ctx["embedder"], "close"):
+        await ctx["embedder"].close()
 
+    logger.info("worker_stopped")
 
 # ═══════════════════════════════════════════════════════════
 # Task: Bulk Ingestion Job
@@ -216,51 +217,92 @@ async def process_single_document(ctx: dict, document_id: str) -> dict:
 
     logger.info("document_processing_started", document_id=document_id)
 
-    # ── 1. Load document ───────────────────────────────
-    async with db_session_factory() as session:
-        doc_repo = DocumentRepository(session)
-        doc_record = await doc_repo.get_document_internal(doc_uuid)
+    try:
+        # ── 1. Load document ───────────────────────────────
+        async with db_session_factory() as session:
+            doc_repo = DocumentRepository(session)
+            doc_record = await doc_repo.get_document_internal(doc_uuid)
 
-        if doc_record is None:
-            raise ValueError(f"Document {document_id} not found")
+            if doc_record is None:
+                raise ValueError(f"Document {document_id} not found")
 
-        await doc_repo.update_document_status(doc_uuid, "processing")
-        await session.commit()
+            await doc_repo.update_document_status(doc_uuid, "processing")
+            await session.commit()
 
-    # ── 2. Parse → Chunk → Embed → Store ──────────────
-    from app.services.ingestion.pipeline import IngestionPipeline
-    from app.services.retrieval.vector_store import VectorStoreService
+        # ── 2. Parse → Chunk → Embed → Store ──────────────
+        from app.services.ingestion.pipeline import IngestionPipeline
+        from app.services.retrieval.vector_store import VectorStoreService
 
-    vector_store = VectorStoreService(client=qdrant_client)
+        vector_store = VectorStoreService(client=qdrant_client)
 
-    pipeline = IngestionPipeline(
-        embedder=embedder,
-        vector_store=vector_store,
-    )
+        pipeline = IngestionPipeline(
+            embedder=embedder,
+            vector_store=vector_store,
+        )
 
-    result = await pipeline.process_document(
-        document_id=doc_uuid,
-        org_id=doc_record.org_id,
-        raw_text=doc_record.raw_text,
-        filename=doc_record.filename,
-        content_type=doc_record.content_type,
-        document_version=doc_record.version,
-    )
+        result = await pipeline.process_document(
+            document_id=doc_uuid,
+            org_id=doc_record.org_id,
+            raw_text=doc_record.raw_text,
+            filename=doc_record.filename,
+            content_type=doc_record.content_type,
+            document_version=doc_record.version,
+        )
 
-    # ── 3. Update document status ──────────────────────
-    async with db_session_factory() as session:
-        doc_repo = DocumentRepository(session)
-        await doc_repo.update_document_status(
-            doc_uuid,
-            status="indexed",
+        # ── 3. Update document status ──────────────────────
+        async with db_session_factory() as session:
+            doc_repo = DocumentRepository(session)
+            await doc_repo.update_document_status(
+                doc_uuid,
+                status="indexed",
+                chunk_count=result.chunk_count,
+            )
+            await session.commit()
+
+        logger.info(
+            "document_processing_completed",
+            document_id=document_id,
             chunk_count=result.chunk_count,
         )
-        await session.commit()
 
-    logger.info(
-        "document_processing_completed",
-        document_id=document_id,
-        chunk_count=result.chunk_count,
-    )
+        return {
+            "document_id": document_id,
+            "status": "indexed",
+            "chunk_count": result.chunk_count,
+        }
 
-    return {"document_id": document_id, "chunk_count": result.chunk_count}
+    except Exception as e:
+        # Convert exception to simple string for pickling
+        error_message = str(e)[:500]  # Truncate long errors
+        error_type = type(e).__name__
+
+        logger.error(
+            "document_processing_failed",
+            document_id=document_id,
+            error=error_message,
+            error_type=error_type,
+        )
+
+        # Update document status to failed
+        try:
+            async with db_session_factory() as session:
+                doc_repo = DocumentRepository(session)
+                await doc_repo.update_document_status(
+                    doc_uuid,
+                    status="failed",
+                    error_message=f"{error_type}: {error_message}",
+                )
+                await session.commit()
+        except Exception as db_error:
+            logger.error(
+                "failed_to_update_document_status",
+                error=str(db_error),
+            )
+
+        # Return simple dict (no exception objects)
+        return {
+            "document_id": document_id,
+            "status": "failed",
+            "error": error_message,
+            "error_type": error_type,
+        }

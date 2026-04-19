@@ -23,8 +23,6 @@ COPY README.md ./
 COPY app/__init__.py ./app/
 COPY config/__init__.py ./config/
 
-# Install CPU-only PyTorch FIRST (saves ~2-3 GB vs default CUDA version)
-RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
 # Install dependencies (not editable in Docker)
 RUN pip install .
 

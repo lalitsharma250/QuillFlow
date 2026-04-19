@@ -43,9 +43,6 @@ COPY README.md ./
 COPY app/__init__.py ./app/
 COPY config/__init__.py ./config/
 
-# Install CPU-only PyTorch first
-RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
-
 RUN pip install .
 
 # ── Stage 2: Runtime ──────────────────────────────────

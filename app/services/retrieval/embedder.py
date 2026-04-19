@@ -1,220 +1,283 @@
 """
 app/services/retrieval/embedder.py
 
-Embedding service using sentence-transformers.
-
-Design decisions:
-  - Self-hosted model (no API dependency, no per-token cost)
-  - Model loaded once at startup, shared across all requests
-  - Batch embedding for efficiency (ingestion pipeline)
-  - Single embedding for queries (low latency)
-  - Runs on CPU by default (GPU optional via CUDA)
-
-The model (BGE-large-en-v1.5) produces 1024-dim embeddings
-and is one of the best open-source embedding models available.
+Embedding service using Voyage AI API with rate limiting.
 """
 
 from __future__ import annotations
 
 import asyncio
-from functools import partial
-from typing import TYPE_CHECKING
+import time
+from typing import Any
 
-import numpy as np
+import httpx
 import structlog
 from fastapi import FastAPI
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 
 from config import get_settings
-
-if TYPE_CHECKING:
-    from sentence_transformers import SentenceTransformer
 
 logger = structlog.get_logger(__name__)
 
 
+class RateLimiter:
+    """
+    Simple rate limiter using token bucket approach.
+    Voyage AI tier 1: 300 requests/minute.
+    """
+
+    def __init__(self, requests_per_minute: int = 3):
+        self.min_interval = 60.0 / requests_per_minute  # Seconds between requests
+        self._last_request_time = 0.0
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        """Wait until we can make another request."""
+        async with self._lock:
+            now = time.monotonic()
+            time_since_last = now - self._last_request_time
+
+            if time_since_last < self.min_interval:
+                wait_time = self.min_interval - time_since_last
+                logger.debug("rate_limit_wait", seconds=round(wait_time, 2))
+                await asyncio.sleep(wait_time)
+
+            self._last_request_time = time.monotonic()
+
+
+class RateLimitError(Exception):
+    """Custom exception for rate limit errors (retryable)."""
+    pass
+
+
 class EmbeddingService:
     """
-    Generates text embeddings using a sentence-transformer model.
-
-    The model is loaded into memory once and reused.
-    All heavy computation runs in a thread pool to avoid blocking the event loop.
-
-    Usage:
-        service = EmbeddingService()
-        await service.load()
-
-        # Single query embedding
-        embedding = await service.embed_text("What is RAG?")
-
-        # Batch embedding (for ingestion)
-        embeddings = await service.embed_batch(["text1", "text2", ...])
+    Generates text embeddings using Voyage AI API.
     """
+
+    VOYAGE_API_URL = "https://api.voyageai.com/v1/embeddings"
+    DEFAULT_MODEL = "voyage-3"
+    MAX_BATCH_SIZE = 128
+    MAX_TOKENS_PER_REQUEST = 120_000
 
     def __init__(self, model_name: str | None = None) -> None:
         settings = get_settings()
         self.model_name = model_name or settings.embedding_model_name
         self.dimensions = settings.embedding_dimensions
-        self.batch_size = settings.embedding_batch_size
-        self._model: SentenceTransformer | None = None
+        self.batch_size = min(settings.embedding_batch_size, self.MAX_BATCH_SIZE)
+        self._api_key: str | None = None
+        self._client: httpx.AsyncClient | None = None
+        self._is_loaded = False
+
+        # Rate limiter — Voyage AI free tier: 3 RPM
+        self._rate_limiter = RateLimiter(requests_per_minute=300)
 
     @property
     def is_loaded(self) -> bool:
-        return self._model is not None
+        return self._is_loaded
 
     async def load(self) -> None:
-        """
-        Load the embedding model into memory.
-        This is CPU/memory intensive — call once at startup.
-        Runs in a thread pool to avoid blocking the event loop.
-        """
-        if self._model is not None:
-            logger.debug("embedding_model_already_loaded", model=self.model_name)
+        if self._is_loaded:
             return
 
-        logger.info("loading_embedding_model", model=self.model_name)
+        settings = get_settings()
 
-        loop = asyncio.get_event_loop()
-        self._model = await loop.run_in_executor(None, self._load_model_sync)
+        if not hasattr(settings, 'voyage_api_key') or not settings.voyage_api_key:
+            raise RuntimeError("VOYAGE_API_KEY not configured.")
 
-        # Verify dimensions match config
-        test_embedding = self._model.encode("test", normalize_embeddings=True)
-        actual_dims = len(test_embedding)
+        api_key = settings.voyage_api_key.get_secret_value()
+        if not api_key:
+            raise RuntimeError("VOYAGE_API_KEY is empty")
 
-        if actual_dims != self.dimensions:
-            logger.warning(
-                "embedding_dimension_mismatch",
-                expected=self.dimensions,
-                actual=actual_dims,
+        self._api_key = api_key
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(60.0),  # Increased timeout
+            limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+
+        # Validate API key with test call
+        try:
+            test_embedding = await self.embed_text("test", _validate_call=True)
+            actual_dims = len(test_embedding)
+
+            if actual_dims != self.dimensions:
+                logger.warning(
+                    "embedding_dimension_mismatch",
+                    expected=self.dimensions,
+                    actual=actual_dims,
+                )
+                self.dimensions = actual_dims
+
+            self._is_loaded = True
+            logger.info(
+                "embedding_service_ready",
+                provider="voyage_ai",
                 model=self.model_name,
+                dimensions=self.dimensions,
+                rate_limit="300 requests/minute",
             )
-            self.dimensions = actual_dims
+        except Exception as e:
+            logger.error("embedding_service_init_failed", error=str(e))
+            if self._client:
+                await self._client.aclose()
+                self._client = None
+            raise RuntimeError(f"Failed to validate Voyage API key: {e}")
 
-        logger.info(
-            "embedding_model_loaded",
-            model=self.model_name,
-            dimensions=self.dimensions,
+    @retry(
+        stop=stop_after_attempt(5),  # Retry more for rate limits
+        wait=wait_exponential(multiplier=2, min=20, max=120),  # Longer waits
+        retry=retry_if_exception_type((
+            httpx.HTTPError,
+            httpx.TimeoutException,
+            RateLimitError,
+        )),
+    )
+    async def _call_voyage_api(
+        self,
+        texts: list[str],
+        input_type: str = "document",
+    ) -> list[list[float]]:
+        """Call Voyage AI embeddings API with rate limiting and retry."""
+        if self._client is None:
+            raise RuntimeError("Embedding service not loaded.")
+
+        # Rate limit BEFORE making the request
+        await self._rate_limiter.acquire()
+
+        payload: dict[str, Any] = {
+            "input": texts,
+            "model": self.model_name,
+            "input_type": input_type,
+        }
+
+        try:
+            response = await self._client.post(
+                self.VOYAGE_API_URL,
+                json=payload,
+            )
+
+            # Handle rate limit explicitly with longer backoff
+            if response.status_code == 429:
+                retry_after = int(response.headers.get("retry-after", 30))
+                logger.warning(
+                    "voyage_rate_limited",
+                    retry_after_seconds=retry_after,
+                    text_count=len(texts),
+                )
+                await asyncio.sleep(retry_after)
+                raise RateLimitError(f"Rate limited, waited {retry_after}s")
+
+            response.raise_for_status()
+
+            data = response.json()
+            embeddings = [item["embedding"] for item in data["data"]]
+
+            usage = data.get("usage", {})
+            logger.debug(
+                "voyage_api_call_success",
+                text_count=len(texts),
+                total_tokens=usage.get("total_tokens", 0),
+                input_type=input_type,
+            )
+
+            return embeddings
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "voyage_api_error",
+                status_code=e.response.status_code,
+                text=e.response.text[:200],
+            )
+            raise
+
+    async def embed_text(
+        self,
+        text: str,
+        _validate_call: bool = False,
+    ) -> list[float]:
+        """Embed a single text string (query path)."""
+        if not _validate_call and not self._is_loaded:
+            raise RuntimeError("Embedding service not loaded.")
+
+        embeddings = await self._call_voyage_api(
+            texts=[text],
+            input_type="query",
         )
-
-    def _load_model_sync(self) -> SentenceTransformer:
-        """Synchronous model loading (runs in thread pool)."""
-        from sentence_transformers import SentenceTransformer
-
-        model = SentenceTransformer(
-            self.model_name,
-            trust_remote_code=False,
-        )
-        return model
-
-    async def embed_text(self, text: str) -> list[float]:
-        """
-        Embed a single text string.
-        Used for query embedding (low latency path).
-
-        Args:
-            text: The text to embed
-
-        Returns:
-            Normalized embedding vector as list of floats
-
-        Raises:
-            RuntimeError: If model is not loaded
-        """
-        if self._model is None:
-            raise RuntimeError("Embedding model not loaded. Call load() first.")
-
-        loop = asyncio.get_event_loop()
-        embedding = await loop.run_in_executor(
-            None,
-            partial(
-                self._model.encode,
-                text,
-                normalize_embeddings=True,
-                show_progress_bar=False,
-            ),
-        )
-
-        return embedding.tolist()
-
-    # ✅ UPDATED embedder.py — embed_batch method:
+        return embeddings[0]
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """
         Embed multiple texts efficiently.
-
-        For CPU: processes in sequential batches (CPU-bound work
-        doesn't benefit from async parallelism — it would just
-        cause thread contention).
-
-        For GPU: could process larger batches. Adjust batch_size
-        in settings based on available VRAM.
+        Automatically batches and rate-limits.
         """
-        if self._model is None:
-            raise RuntimeError("Embedding model not loaded. Call load() first.")
+        if not self._is_loaded:
+            raise RuntimeError("Embedding service not loaded.")
 
         if not texts:
             return []
 
-        logger.debug(
+        logger.info(
             "batch_embedding_started",
             text_count=len(texts),
             batch_size=self.batch_size,
+            estimated_batches=(len(texts) + self.batch_size - 1) // self.batch_size,
+            note="Rate limited to 3 RPM - may take time",
         )
 
-        loop = asyncio.get_event_loop()
-
-        # For small sets, encode all at once (avoids batch overhead)
-        if len(texts) <= self.batch_size:
-            embeddings = await loop.run_in_executor(
-                None,
-                partial(
-                    self._model.encode,
-                    texts,
-                    normalize_embeddings=True,
-                    show_progress_bar=False,
-                    batch_size=self.batch_size,
-                ),
-            )
-            return self._to_list(embeddings)
-
-        # For large sets, process in batches to control memory
-        # sentence-transformers handles internal parallelism per batch
         all_embeddings: list[list[float]] = []
 
         for i in range(0, len(texts), self.batch_size):
             batch = texts[i : i + self.batch_size]
 
-            batch_embeddings = await loop.run_in_executor(
-                None,
-                partial(
-                    self._model.encode,
-                    batch,
-                    normalize_embeddings=True,
-                    show_progress_bar=False,
-                    batch_size=self.batch_size,
-                ),
-            )
+            try:
+                batch_embeddings = await self._call_voyage_api(
+                    texts=batch,
+                    input_type="document",
+                )
+                all_embeddings.extend(batch_embeddings)
 
-            all_embeddings.extend(self._to_list(batch_embeddings))
+                logger.info(
+                    "batch_embedding_progress",
+                    processed=min(i + self.batch_size, len(texts)),
+                    total=len(texts),
+                )
 
-            logger.debug(
-                "batch_embedding_progress",
-                processed=min(i + self.batch_size, len(texts)),
-                total=len(texts),
-            )
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 400 and "token" in e.response.text.lower():
+                    logger.warning("batch_too_large_splitting", batch_size=len(batch))
+                    half = len(batch) // 2
+                    for sub_batch in [batch[:half], batch[half:]]:
+                        if sub_batch:
+                            sub_embeddings = await self._call_voyage_api(
+                                texts=sub_batch,
+                                input_type="document",
+                            )
+                            all_embeddings.extend(sub_embeddings)
+                else:
+                    raise
+
+        logger.info(
+            "batch_embedding_complete",
+            text_count=len(texts),
+            embedding_count=len(all_embeddings),
+        )
 
         return all_embeddings
 
-    @staticmethod
-    def _to_list(embeddings) -> list[list[float]]:
-        """Convert numpy array or list to list of lists."""
-        import numpy as np
-
-        if isinstance(embeddings, np.ndarray):
-            return embeddings.tolist()
-        return [
-            e.tolist() if hasattr(e, "tolist") else e
-            for e in embeddings
-        ]
+    async def close(self) -> None:
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+        self._is_loaded = False
 
 
 # ═══════════════════════════════════════════════════════════
@@ -223,13 +286,12 @@ class EmbeddingService:
 
 
 async def init_embedder(app: FastAPI) -> None:
-    """
-    Initialize the embedding service during app startup.
-    Stores the service on app.state.embedder.
-    """
     service = EmbeddingService()
     await service.load()
     app.state.embedder = service
 
 
-# No close needed — model is just in memory, GC handles it.
+async def close_embedder(app: FastAPI) -> None:
+    service = getattr(app.state, "embedder", None)
+    if service:
+        await service.close()
