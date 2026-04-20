@@ -165,10 +165,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # 9. ARQ job pool (for enqueuing background tasks)
     try:
+        worker_redis = settings.worker_redis_settings
         arq_settings = RedisSettings(
-            host=settings.worker_redis_settings["host"],
-            port=settings.worker_redis_settings["port"],
-            database=settings.worker_redis_settings["database"],
+            host=worker_redis["host"],
+            port=worker_redis["port"],
+            database=worker_redis["database"],
+            password=worker_redis.get("password"),
+            username=worker_redis.get("username"),
+            ssl=worker_redis.get("ssl", False),
+            ssl_cert_reqs=worker_redis.get("ssl_cert_reqs"),
         )
         app.state.arq_pool = await create_pool(arq_settings)
         logger.info("arq_pool_connected")

@@ -111,6 +111,12 @@ class Settings(BaseSettings):
         # Enable SSL for rediss:// URLs (Upstash, etc.)
         if parsed.scheme == "rediss":
             settings_dict["ssl"] = True
+        # Enable TLS for rediss:// URLs (Upstash uses TLS)
+        if parsed.scheme == "rediss":
+            import ssl
+            settings_dict["ssl"] = True
+            settings_dict["ssl_cert_reqs"] = None  # Don't verify cert (Upstash uses self-signed sometimes)
+
         return settings_dict
 
     # ── JWT Authentication ─────────────────────────────
