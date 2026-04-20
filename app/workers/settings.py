@@ -20,6 +20,7 @@ from config import get_settings
 
 
 settings = get_settings()
+_worker_redis = settings.worker_redis_settings
 
 
 class WorkerSettings:
@@ -30,30 +31,27 @@ class WorkerSettings:
     Docs: https://arq-docs.helpmanual.io/
     """
 
-    # ── Redis connection ───────────────────────────────
+    # ── Redis connection (supports TLS for Upstash/cloud) ──
     redis_settings = RedisSettings(
-        host=settings.worker_redis_settings["host"],
-        port=settings.worker_redis_settings["port"],
-        database=settings.worker_redis_settings["database"],
+        host=_worker_redis["host"],
+        port=_worker_redis["port"],
+        database=_worker_redis["database"],
+        password=_worker_redis.get("password"),
+        username=_worker_redis.get("username"),
+        ssl=_worker_redis.get("ssl", False),
+        ssl_cert_reqs=_worker_redis.get("ssl_cert_reqs"),
     )
 
-    # ── Task functions (imported at worker startup) ────
-    # ARQ needs the actual function references here.
-    # We use a string import pattern to avoid circular imports.
+    # ── Task functions ─────────────────────────────────
     functions = [
         process_bulk_ingestion_job,
         process_single_document,
     ]
+
     # ── Worker behavior ────────────────────────────────
     max_jobs = settings.worker_max_jobs
     job_timeout = settings.worker_job_timeout_seconds
     health_check_interval = settings.worker_health_check_interval
-
-    # ── Optional: scheduled tasks ──────────────────────
-    # Example: re-index stale documents every hour
-    # cron_jobs = [
-    #     cron(reindex_stale_documents, hour=None, minute=0),  # Every hour
-    # ]
 
     # ── Lifecycle hooks ────────────────────────────────
     on_startup = on_worker_startup
