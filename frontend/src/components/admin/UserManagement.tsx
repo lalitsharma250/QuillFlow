@@ -72,7 +72,7 @@ export default function UserManagement() {
     if (user.role === 'admin' && !isSuperAdmin) return false
     return true
   }
-  const getRoleOptions = (user: OrgUser) => {
+  const getRoleOptions = (_user: OrgUser) => {
     if (isSuperAdmin) return ['admin', 'editor', 'viewer']
     // Non-superadmin can only set editor or viewer
     return ['editor', 'viewer']
