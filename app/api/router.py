@@ -42,6 +42,7 @@ api_router.include_router(users_router, prefix="/v1")
 
 # ── Basic liveness probe (no auth required) ────────────
 @api_router.get("/health", tags=["system"])
+@api_router.head("/health", tags=["system"])
 async def liveness():
     """Basic liveness check — proves the process is running."""
     return {"status": "alive", "service": "quillflow"}
