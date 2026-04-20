@@ -61,6 +61,7 @@ services:
     env_file:
       - ../.env
     environment:
+      STARTUP_MODE: api 
       PYTHONPATH: /app
       QUILL_POSTGRES_HOST: postgres
       QUILL_POSTGRES_PORT: "5432"
@@ -93,6 +94,7 @@ services:
     env_file:
       - ../.env
     environment:
+      STARTUP_MODE: worker
       PYTHONPATH: /app
       QUILL_POSTGRES_HOST: postgres
       QUILL_POSTGRES_PORT: "5432"
