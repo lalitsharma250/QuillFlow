@@ -159,6 +159,9 @@ class Settings(BaseSettings):
     eval_faithfulness_threshold: float = 0.7
     eval_relevancy_threshold: float = 0.7
     eval_context_precision_threshold: float = 0.7
+    
+     # ── CORS ───────────────────────────────────────────
+    frontend_url: str = ""  # Production frontend URL (for CORS)
 
     # ── Data Leakage Prevention ────────────────────────
     dlp_enabled: bool = True

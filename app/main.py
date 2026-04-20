@@ -236,9 +236,23 @@ def create_app() -> FastAPI:
     )
 
     # ── Middleware ──────────────────────────────────────
+    allowed_origins = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+    ]
+    
+    # Add production frontend URL(s)
+    if settings.frontend_url:
+        allowed_origins.append(settings.frontend_url)
+    
+    # In debug mode, allow all origins
+    if settings.debug:
+        allowed_origins = ["*"]
+    
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if settings.debug else [],
+        allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
