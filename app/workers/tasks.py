@@ -47,6 +47,9 @@ async def on_worker_startup(ctx: dict) -> None:
         settings.postgres_dsn,
         pool_size=settings.worker_concurrency + 2,
         max_overflow=5,
+        pool_pre_ping=True,        # ← Test connection before use
+        pool_recycle=300,          # ← Recycle connections every 5 min
+        pool_timeout=30,           # ← Wait up to 30s for connection
     )
     ctx["db_engine"] = engine
     ctx["db_session_factory"] = async_sessionmaker(engine, expire_on_commit=False)

@@ -40,7 +40,7 @@ def _build_engine() -> AsyncEngine:
         pool_size=10,
         max_overflow=20,
         pool_pre_ping=True,
-        pool_recycle=3600,       # Recycle connections after 1 hour
+        pool_recycle=300,       # Recycle connections after 1 hour
         echo=settings.debug,     # SQL logging in debug mode only
     )
 
