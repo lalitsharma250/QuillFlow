@@ -50,7 +50,7 @@
 Client → Frontend (React) → API (FastAPI) → LangGraph DAG
                                                ├── Input Filter (guardrails)
                                                ├── Cache Check (L1 exact + L2 semantic)
-                                               ├── Router (classify query)
+                                               ├── Router (classify query as simple/complex)
                                                ├── Retriever (hybrid search + rerank)
                                                ├── Planner (content plan for complex)
                                                ├── Writers (parallel sections)
