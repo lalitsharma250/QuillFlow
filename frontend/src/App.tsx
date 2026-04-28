@@ -10,7 +10,7 @@ import AdminPage from '@/pages/AdminPage'
 import NotFoundPage from '@/pages/NotFoundPage'
 import MainLayout from '@/components/layout/MainLayout'
 import ProtectedRoute from '@/components/layout/ProtectedRoute'
-
+import ErrorBoundary from '@/components/ErrorBoundary'
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

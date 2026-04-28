@@ -44,9 +44,8 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
 
         {/* Sources */}
         {!isUser && message.sources && (
-          <SourceCard sources={message.sources} />
-        )}
-
+  <SourceCard sources={message.sources} answerText={message.content} />
+)}
         {/* Metadata */}
         {!isUser && (message.usage || message.cached !== undefined) && (
           <div className="flex items-center gap-3 mt-1.5 px-1 flex-wrap">
@@ -55,16 +54,6 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             </span>
             {message.cached && (
               <span className="text-xs text-amber-500">⚡ cached</span>
-            )}
-            {message.usage && message.usage.total_tokens > 0 && (
-              <span className={`text-xs ${isDark ? 'text-slate-600' : 'text-gray-400'}`}>
-                {message.usage.total_tokens.toLocaleString()} tokens
-              </span>
-            )}
-            {message.usage && message.usage.estimated_cost_usd > 0 && (
-              <span className={`text-xs ${isDark ? 'text-slate-600' : 'text-gray-400'}`}>
-                {formatCost(message.usage.estimated_cost_usd)}
-              </span>
             )}
             {message.query_type && (
               <span className={`text-xs px-1.5 py-0.5 rounded ${

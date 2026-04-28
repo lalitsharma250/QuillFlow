@@ -24,16 +24,16 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config
+    const status = error.response?.status
 
-    // If 401 and we haven't retried yet
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // ── 401: Try refresh token flow (existing logic) ──
+    if (status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
 
       const refreshToken = useAuthStore.getState().refreshToken
-
+        
       if (refreshToken) {
         try {
-          // Try to refresh the token
           const response = await axios.post(`${API_URL}/v1/auth/refresh`, {
             refresh_token: refreshToken,
           })
@@ -41,19 +41,34 @@ apiClient.interceptors.response.use(
           const newAccessToken = response.data.access_token
           useAuthStore.getState().setAccessToken(newAccessToken)
 
-          // Retry original request with new token
           originalRequest.headers.Authorization = `Bearer ${newAccessToken}`
           return apiClient(originalRequest)
         } catch (refreshError) {
-          // Refresh failed — logout
           useAuthStore.getState().logout()
           window.location.href = '/login'
           return Promise.reject(refreshError)
         }
       } else {
-        // No refresh token — logout
         useAuthStore.getState().logout()
         window.location.href = '/login'
+      }
+    }
+
+    // ── 403: Permission denied (role changed, token has old role) ──
+    if (status === 403) {
+      const detail = error.response?.data?.detail || ''
+      
+      // Check if error suggests role/auth issue (not business logic 403)
+      const isAuthIssue = 
+        detail.includes('role') || 
+        detail.includes('permission') ||
+        detail.includes('invalid') ||
+        detail.includes('expired')
+      
+      if (isAuthIssue && !window.location.pathname.includes('/login')) {
+        // Force re-auth to get fresh token with current role
+        useAuthStore.getState().logout()
+        window.location.href = '/login?reason=role_changed'
       }
     }
 
