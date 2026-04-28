@@ -11,10 +11,11 @@ import NotFoundPage from '@/pages/NotFoundPage'
 import MainLayout from '@/components/layout/MainLayout'
 import ProtectedRoute from '@/components/layout/ProtectedRoute'
 import ErrorBoundary from '@/components/ErrorBoundary'
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000, // 30 seconds
+      staleTime: 30_000,
       retry: 1,
     },
   },
@@ -22,26 +23,28 @@ const queryClient = new QueryClient({
 
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          {/* Public route */}
-          <Route path={ROUTES.LOGIN} element={<LoginPage />} />
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <Routes>
+            {/* Public route */}
+            <Route path={ROUTES.LOGIN} element={<LoginPage />} />
 
-          {/* Protected routes */}
-          <Route element={<ProtectedRoute />}>
-            <Route element={<MainLayout />}>
-              <Route path={ROUTES.CHAT} element={<ChatPage />} />
-              <Route path={ROUTES.DOCUMENTS} element={<DocumentsPage />} />
-              <Route path={ROUTES.ADMIN} element={<AdminPage />} />
+            {/* Protected routes */}
+            <Route element={<ProtectedRoute />}>
+              <Route element={<MainLayout />}>
+                <Route path={ROUTES.CHAT} element={<ChatPage />} />
+                <Route path={ROUTES.DOCUMENTS} element={<DocumentsPage />} />
+                <Route path={ROUTES.ADMIN} element={<AdminPage />} />
+              </Route>
             </Route>
-          </Route>
 
-          {/* 404 */}
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </BrowserRouter>
-      <Toaster />
-    </QueryClientProvider>
+            {/* 404 */}
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+        </BrowserRouter>
+        <Toaster />
+      </QueryClientProvider>
+    </ErrorBoundary>
   )
 }

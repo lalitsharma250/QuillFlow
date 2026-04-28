@@ -2,7 +2,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '@/lib/types'
 import SourceCard from './SourceCard'
-import { formatDate, formatCost } from '@/lib/utils'
+import { formatDate} from '@/lib/utils'
 import { useThemeStore } from '@/stores/themeStore'
 
 interface MessageBubbleProps {
