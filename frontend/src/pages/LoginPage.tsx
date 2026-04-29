@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { authApi } from '@/api/auth'
 import { useAuthStore } from '@/stores/authStore'
 import { toast } from '@/components/ui/toaster'
@@ -9,18 +9,24 @@ type AuthTab = 'signin' | 'signup'
 
 export default function LoginPage() {
   const [tab, setTab] = useState<AuthTab>('signin')
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const setAuth = useAuthStore((s) => s.setAuth)
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
 
-  // Redirect if already logged in (in useEffect, not during render)
+  // Show reason for redirect (if any)
+  const reason = searchParams.get('reason')
+  const redirectMessage = {
+    role_changed: 'Your role has been updated. Please log in again to continue.',
+    session_expired: 'Your session has expired. Please log in again.',
+  }[reason || ''] || null
+
   useEffect(() => {
     if (isAuthenticated) {
       navigate(ROUTES.CHAT, { replace: true })
     }
   }, [isAuthenticated, navigate])
 
-  // Don't render login form if authenticated
   if (isAuthenticated) return null
 
   return (
@@ -36,6 +42,16 @@ export default function LoginPage() {
           </div>
           <p className="text-slate-400 text-sm">Intelligent RAG-powered content generation</p>
         </div>
+
+        {/* Redirect Reason Banner */}
+        {redirectMessage && (
+          <div className="mb-4 bg-amber-900/20 border border-amber-800 rounded-lg px-4 py-3">
+            <div className="flex items-start gap-2">
+              <span className="text-amber-400 text-lg flex-shrink-0">ℹ️</span>
+              <p className="text-sm text-amber-200">{redirectMessage}</p>
+            </div>
+          </div>
+        )}
 
         {/* Card */}
         <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl p-6">

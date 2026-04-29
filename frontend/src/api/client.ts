@@ -55,22 +55,22 @@ apiClient.interceptors.response.use(
     }
 
     // ── 403: Permission denied (role changed, token has old role) ──
-    if (status === 403) {
-      const detail = error.response?.data?.detail || ''
+    // if (status === 403) {
+    //   const detail = error.response?.data?.detail || ''
       
-      // Check if error suggests role/auth issue (not business logic 403)
-      const isAuthIssue = 
-        detail.includes('role') || 
-        detail.includes('permission') ||
-        detail.includes('invalid') ||
-        detail.includes('expired')
+    //   // Check if error suggests role/auth issue (not business logic 403)
+    //   const isAuthIssue = 
+    //     detail.includes('role') || 
+    //     detail.includes('permission') ||
+    //     detail.includes('invalid') ||
+    //     detail.includes('expired')
       
-      if (isAuthIssue && !window.location.pathname.includes('/login')) {
-        // Force re-auth to get fresh token with current role
-        useAuthStore.getState().logout()
-        window.location.href = '/login?reason=role_changed'
-      }
-    }
+    //   if (isAuthIssue && !window.location.pathname.includes('/login')) {
+    //     // Force re-auth to get fresh token with current role
+    //     useAuthStore.getState().logout()
+    //     window.location.href = '/login?reason=role_changed'
+    //   }
+    // }
 
     return Promise.reject(error)
   }

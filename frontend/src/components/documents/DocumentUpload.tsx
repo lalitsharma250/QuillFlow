@@ -68,34 +68,44 @@ export default function DocumentUpload({ onClose, onComplete }: DocumentUploadPr
   }
 
   const handleUpload = async () => {
-    if (files.length === 0) return
-    setUploading(true)
+  if (files.length === 0) return
+  setUploading(true)
 
-    try {
-      if (files.length === 1) {
-        setProgress(`Uploading "${files[0].name}"...`)
-        await documentsApi.uploadFile(files[0])
-        toast(`"${files[0].name}" uploaded successfully`, 'success')
-      } else {
-        setProgress(`Uploading ${files.length} files...`)
-        await documentsApi.uploadFiles(files)
-        toast(`${files.length} documents uploaded successfully`, 'success')
-      }
-      onComplete()
-    } catch (err: any) {
-      const detail = err.response?.data?.detail
-      if (typeof detail === 'string') {
-        toast(detail, 'error')
-      } else if (Array.isArray(detail)) {
-        toast(detail.map((d: any) => d.msg || JSON.stringify(d)).join(', '), 'error')
-      } else {
-        toast('Upload failed. Check file format and try again.', 'error')
-      }
-    } finally {
-      setUploading(false)
-      setProgress('')
+  try {
+    if (files.length === 1) {
+      setProgress(`Uploading "${files[0].name}"...`)
+      await documentsApi.uploadFile(files[0])
+      toast(`"${files[0].name}" uploaded successfully`, 'success')
+    } else {
+      setProgress(`Uploading ${files.length} files...`)
+      await documentsApi.uploadFiles(files)
+      toast(`${files.length} documents uploaded successfully`, 'success')
     }
+    onComplete()
+  } catch (err: any) {
+    const status = err.response?.status
+    const detail = err.response?.data?.detail
+    
+    // Handle specific error codes with friendly messages
+    if (status === 403) {
+      toast(
+        'Your role does not allow uploading documents. Contact an admin to upgrade to Editor role.',
+        'error'
+      )
+    } else if (status === 413) {
+      toast('File too large. Maximum size is 20MB per file.', 'error')
+    } else if (typeof detail === 'string') {
+      toast(detail, 'error')
+    } else if (Array.isArray(detail)) {
+      toast(detail.map((d: any) => d.msg || JSON.stringify(d)).join(', '), 'error')
+    } else {
+      toast('Upload failed. Please try again.', 'error')
+    }
+  } finally {
+    setUploading(false)
+    setProgress('')
   }
+}
 
   const formatSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`
