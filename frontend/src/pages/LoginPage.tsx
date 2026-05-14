@@ -18,6 +18,8 @@ export default function LoginPage() {
   const reason = searchParams.get('reason')
   const redirectMessage = {
     role_changed: 'Your role has been updated. Please log in again to continue.',
+    permissions_changed: 'Your permissions have changed. Please log in again.',
+    account_disabled: 'Your account has been disabled. Please contact an admin.',
     session_expired: 'Your session has expired. Please log in again.',
   }[reason || ''] || null
 

@@ -19,59 +19,78 @@ apiClient.interceptors.request.use((config) => {
   return config
 })
 
-// Response interceptor — handle 401 + auto-refresh
+// Helper: derive redirect reason from error detail string
+function getReasonFromDetail(detail: string): string {
+  if (detail.includes('Role has changed')) return 'role_changed'
+  if (detail.includes('Permissions have changed')) return 'permissions_changed'
+  if (detail.includes('disabled')) return 'account_disabled'
+  return 'session_expired'
+}
+
+// Response interceptor — handle 401 + auto-refresh + role staleness
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config
     const status = error.response?.status
+    const detail: string = error.response?.data?.detail || ''
 
-    // ── 401: Try refresh token flow (existing logic) ──
-    if (status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true
+    // ── 401: Decide what to do ──────────────────────────────
+    if (status === 401) {
+      // Special case: role/permissions/account changed
+      // Don't try refresh — token decoded fine, but DB state changed
+      const isStaleAuth =
+        detail.includes('Role has changed') ||
+        detail.includes('Permissions have changed') ||
+        detail.includes('disabled')
 
-      const refreshToken = useAuthStore.getState().refreshToken
-        
-      if (refreshToken) {
-        try {
-          const response = await axios.post(`${API_URL}/v1/auth/refresh`, {
-            refresh_token: refreshToken,
-          })
+      if (isStaleAuth) {
+        const reason = getReasonFromDetail(detail)
+        useAuthStore.getState().logout()
+        window.location.href = `/login?reason=${reason}`
+        return Promise.reject(error)
+      }
 
-          const newAccessToken = response.data.access_token
-          useAuthStore.getState().setAccessToken(newAccessToken)
+      // Otherwise: try refresh token (token expired)
+      if (!originalRequest._retry) {
+        originalRequest._retry = true
 
-          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`
-          return apiClient(originalRequest)
-        } catch (refreshError) {
+        const refreshToken = useAuthStore.getState().refreshToken
+
+        if (refreshToken) {
+          try {
+            const response = await axios.post(`${API_URL}/v1/auth/refresh`, {
+              refresh_token: refreshToken,
+            })
+
+            const newAccessToken = response.data.access_token
+            const updatedUser = response.data.user  // ← Get fresh user info
+            
+            // Update both token and user (in case role changed)
+            useAuthStore.getState().setAccessToken(newAccessToken)
+            if (updatedUser) {
+              useAuthStore.getState().setUser(updatedUser)
+            }
+
+            originalRequest.headers.Authorization = `Bearer ${newAccessToken}`
+            return apiClient(originalRequest)
+          } catch (refreshError: any) {
+            // Refresh failed — could be role change OR truly expired refresh
+            const refreshDetail: string =
+              refreshError.response?.data?.detail || ''
+            const reason = getReasonFromDetail(refreshDetail)
+            useAuthStore.getState().logout()
+            window.location.href = `/login?reason=${reason}`
+            return Promise.reject(refreshError)
+          }
+        } else {
           useAuthStore.getState().logout()
           window.location.href = '/login'
-          return Promise.reject(refreshError)
         }
-      } else {
-        useAuthStore.getState().logout()
-        window.location.href = '/login'
       }
     }
 
-    // ── 403: Permission denied (role changed, token has old role) ──
-    // if (status === 403) {
-    //   const detail = error.response?.data?.detail || ''
-      
-    //   // Check if error suggests role/auth issue (not business logic 403)
-    //   const isAuthIssue = 
-    //     detail.includes('role') || 
-    //     detail.includes('permission') ||
-    //     detail.includes('invalid') ||
-    //     detail.includes('expired')
-      
-    //   if (isAuthIssue && !window.location.pathname.includes('/login')) {
-    //     // Force re-auth to get fresh token with current role
-    //     useAuthStore.getState().logout()
-    //     window.location.href = '/login?reason=role_changed'
-    //   }
-    // }
-
+    // ── 403: Permission denied — let component show toast (no redirect) ──
     return Promise.reject(error)
   }
 )
