@@ -171,6 +171,10 @@ class StreamEvent(BaseModel):
         default=None,
         description="Token usage summary (sent in stream_end)",
     )
+    cached: bool | None = Field(  # ← ADD THIS
+        default=None,
+        description="Whether this response was served from cache (sent in stream_end)",
+    )
     error_detail: str | None = Field(
         default=None,
         description="Error description (sent in error events)",

@@ -257,31 +257,46 @@ async def _stream_response(
                 error_detail=error,
             ).to_sse()
             return
-
+        
         # ── Stream end ─────────────────────────────────
-        chunks = final_state.get("retrieved_chunks", [])
         total_usage = final_state.get("total_usage") or TokenUsage()
 
-        sources = [
-        SourceReference(
-            filename=rc.chunk.metadata.source_filename,
-            page_number=rc.chunk.metadata.page_number,
-            section_heading=rc.chunk.metadata.section_heading,
-            chunk_text_preview=rc.chunk.text[:200],
-            relevance_score=rc.score,
-        )
-        for rc in chunks[:10]
-        ]
+        # Build sources — handle both cache hit and fresh retrieval
+        sources: list[SourceReference] = []
+        
+        if final_state.get("cache_hit") and final_state.get("cached_response"):
+            # Cache hit — sources come from cached response
+            cached = final_state["cached_response"]
+            sources = [
+                SourceReference(**s) for s in cached.get("sources", [])
+            ]
+        else:
+            # Fresh retrieval — sources come from retrieved chunks
+            chunks = final_state.get("retrieved_chunks", [])
+            sources = [
+                SourceReference(
+                    filename=rc.chunk.metadata.source_filename,
+                    page_number=rc.chunk.metadata.page_number,
+                    section_heading=rc.chunk.metadata.section_heading,
+                    chunk_text_preview=rc.chunk.text[:200],
+                    relevance_score=rc.score,
+                )
+                for rc in chunks[:10]
+            ]
 
         yield StreamEvent(
             type=StreamEventType.STREAM_END,
             sources=sources,
             usage=total_usage,
+            cached=final_state.get("cache_hit", False),
         ).to_sse()
 
         # ── Record lineage (after stream completes) ────
-        query = final_state.get("query", "")
-        await _record_lineage(session, response_id, query, chunks)
+        # Only record if we did fresh retrieval (cache hits skip lineage)
+        if not final_state.get("cache_hit"):
+            query = final_state.get("query", "")
+            chunks = final_state.get("retrieved_chunks", [])
+            await _record_lineage(session, response_id, query, chunks)
 
     except Exception as e:
         logger.error(
@@ -330,6 +345,11 @@ async def _node_to_events(
     elif node_name == NODE_CACHE_CHECK:
         if node_output.get("cache_hit"):
             cached = node_output.get("cached_response", {})
+            yield StreamEvent(
+                type=StreamEventType.STATUS_UPDATE,
+                message="⚡ Found in cache",
+            ).to_sse()
+
             # Stream the cached content as a single delta
             yield StreamEvent(
                 type=StreamEventType.CONTENT_DELTA,
