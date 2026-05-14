@@ -100,6 +100,7 @@ class RefreshResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    user: UserInfo
 
 
 class InviteVerifyResponse(BaseModel):
@@ -410,13 +411,26 @@ async def refresh_token(
     result = await session.execute(
         select(UserRecord)
         .options(selectinload(UserRecord.organization))
-        .where(UserRecord.id == UUID(payload["sub"]), UserRecord.is_active == True)
+        .where(UserRecord.id == UUID(payload["sub"]))
     )
     user = result.scalar_one_or_none()
 
     if user is None:
-        raise HTTPException(status_code=401, detail="User not found or disabled")
+        raise HTTPException(status_code=401, detail="User not found")
 
+    if not user.is_active:
+        raise HTTPException(
+            status_code=401,
+            detail="Your account has been disabled. Please contact an admin.",
+        )
+
+    if not user.organization.is_active:
+        raise HTTPException(
+            status_code=401,
+            detail="Your organization has been disabled.",
+        )
+
+    # Issue new access token with FRESH role from DB
     access_token = create_access_token(
         user_id=user.id,
         org_id=user.org_id,
@@ -428,6 +442,15 @@ async def refresh_token(
     return RefreshResponse(
         access_token=access_token,
         expires_in=settings.jwt_access_token_hours * 3600,
+        user=UserInfo(
+            user_id=str(user.id),
+            email=user.email,
+            name=user.name,
+            role=user.role,
+            org_id=str(user.org_id),
+            org_name=user.organization.name,
+            is_superadmin=user.is_superadmin,
+        ),
     )
 
 
