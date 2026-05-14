@@ -10,8 +10,8 @@ interface AuthState {
   // Actions
   setAuth: (accessToken: string, refreshToken: string, user: User) => void
   setAccessToken: (token: string) => void
-  logout: () => void
   setUser: (user: User) => void
+  logout: () => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -33,6 +33,9 @@ export const useAuthStore = create<AuthState>()(
       setAccessToken: (token) =>
         set({ accessToken: token }),
 
+      setUser: (user) =>
+        set({ user }),
+
       logout: () =>
         set({
           accessToken: null,
@@ -40,7 +43,6 @@ export const useAuthStore = create<AuthState>()(
           user: null,
           isAuthenticated: false,
         }),
-        setUser: (user) => set({ user }),
     }),
     {
       name: 'quillflow-auth',
