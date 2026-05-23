@@ -441,35 +441,51 @@ def query_rewrite_prompt(
     """
     Rewrite a vague follow-up query into a standalone search query
     using conversation history for context.
-    
+
     Returns:
         (system_prompt, user_message)
     """
     system = (
-        "You are a query rewriter. Your job is to rewrite a user's follow-up message "
-        "into a standalone search query that can be used to search a knowledge base.\n\n"
+        "You are a query rewriter for a knowledge base search system. "
+        "Your ONLY job: rewrite a user's follow-up message into a standalone "
+        "search query that includes the necessary context from the conversation.\n\n"
         "Rules:\n"
-        "1. If the query is already specific and standalone, return it unchanged\n"
-        "2. If the query is vague (like 'yes', 'tell me more', 'explain that'), "
-        "use the conversation history to understand what the user is referring to\n"
-        "3. The rewritten query should be a clear, specific search query\n"
-        "4. Keep it concise — under 50 words\n"
-        "5. Do NOT answer the question — just rewrite it for search\n"
-        "6. Return ONLY the rewritten query, nothing else\n"
+        "1. RESOLVE PRONOUNS: Replace 'it', 'its', 'this', 'that', 'they' with "
+        "the actual subject from the conversation history.\n"
+        "   Example:\n"
+        "     History mentions 'RAG'\n"
+        "     User: 'What are its benefits?'\n"
+        "     Rewrite: 'What are the benefits of RAG?'\n\n"
+        "2. EXPAND VAGUE QUERIES: Make 'tell me more' or 'continue' specific.\n"
+        "   Example:\n"
+        "     History discusses 'vector databases'\n"
+        "     User: 'Tell me more'\n"
+        "     Rewrite: 'Tell me more about vector databases'\n\n"
+        "3. PRESERVE INTENT: Don't change what the user is actually asking.\n\n"
+        "4. ALREADY-CLEAR queries pass through unchanged.\n"
+        "   Example:\n"
+        "     User: 'How does HNSW indexing work?'\n"
+        "     Rewrite: 'How does HNSW indexing work?'\n\n"
+        "5. OUTPUT FORMAT: Return ONLY the rewritten query as plain text. "
+        "No quotes, no explanations, no preamble. Just the query.\n\n"
+        "6. Keep it concise (under 30 words).\n"
     )
 
-    # Build conversation context
+    # Build conversation context (last 3 turns = 6 messages)
     history_text = ""
     for msg in history[-6:]:
         role = "User" if msg.get("role") == "user" else "Assistant"
         content = msg.get("content", "")[:300]
         history_text += f"{role}: {content}\n"
 
+    if not history_text:
+        history_text = "(no prior conversation)\n"
+
     user = (
         f"Conversation history:\n{history_text}\n"
         f"---\n"
-        f"Latest user message: {query}\n\n"
-        f"Rewrite this into a standalone search query:"
+        f"User's latest message: {query}\n\n"
+        f"Rewritten standalone query:"
     )
 
     return system, user
