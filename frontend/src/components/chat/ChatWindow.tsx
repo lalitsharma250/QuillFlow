@@ -35,6 +35,11 @@ export default function ChatWindow() {
       convId = store.createConversation()
     }
 
+    const currentConv = useChatStore.getState().conversations.find((c) => c.id === convId)
+    const history = (currentConv ? currentConv.messages : [])
+      .slice(-20)
+      .map((m) => ({ role: m.role, content: m.content }))
+
     const userMessage: ChatMessage = {
       id: generateId(),
       role: "user",
@@ -42,11 +47,6 @@ export default function ChatWindow() {
       created_at: new Date().toISOString(),
     }
     store.addMessage(convId, userMessage)
-
-    const currentConv = useChatStore.getState().conversations.find((c) => c.id === convId)
-    const history = (currentConv ? currentConv.messages : [])
-      .slice(-20)
-      .map((m) => ({ role: m.role, content: m.content }))
 
     setIsStreaming(true)
     setStreamContent("")
