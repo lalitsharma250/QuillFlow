@@ -20,33 +20,27 @@ export default function ChatWindow() {
   const sourcesRef = useRef<Source[]>([])
   const usageRef = useRef<TokenUsage | null>(null)
   const queryTypeRef = useRef("simple")
+  const cachedRef = useRef(false)
 
-  const store = useChatStore()
-  const conversation = store.activeConversation()
-  const messages = conversation ? conversation.messages : []
+  const activeConversationId = useChatStore((s) => s.activeConversationId)
+  const messages = useChatStore((s) => s.messages)
+  const addLocalMessage = useChatStore((s) => s.addLocalMessage)
+  const setActiveConversationId = useChatStore((s) => s.setActiveConversationId)
+  const loadConversations = useChatStore((s) => s.loadConversations)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, streamContent])
 
   const handleSend = (query: string) => {
-    let convId = store.activeConversationId
-    if (!convId) {
-      convId = store.createConversation()
-    }
-
-    const currentConv = useChatStore.getState().conversations.find((c) => c.id === convId)
-    const history = (currentConv ? currentConv.messages : [])
-      .slice(-20)
-      .map((m) => ({ role: m.role, content: m.content }))
-
+    // Add user message locally (optimistic update)
     const userMessage: ChatMessage = {
       id: generateId(),
       role: "user",
       content: query,
       created_at: new Date().toISOString(),
     }
-    store.addMessage(convId, userMessage)
+    addLocalMessage(userMessage)
 
     setIsStreaming(true)
     setStreamContent("")
@@ -55,16 +49,21 @@ export default function ChatWindow() {
     sourcesRef.current = []
     usageRef.current = null
     queryTypeRef.current = "simple"
+    cachedRef.current = false
 
     const assistantId = generateId()
-    const savedConvId = convId
+    let newConversationId: string | null = null
 
     abortRef.current = chatApi.streamQuery(
       query,
-      history,
+      activeConversationId,  // null for new chat; backend creates one
       (event: StreamEvent) => {
         if (event.type === "stream_start") {
           setStatusMessages(["Starting..."])
+          // Capture conversation_id (especially for new chats)
+          if (event.conversation_id) {
+            newConversationId = event.conversation_id
+          }
         } else if (event.type === "status_update") {
           if (event.message) setStatusMessages((prev) => [...prev, event.message!])
           if (event.query_type) queryTypeRef.current = event.query_type
@@ -78,6 +77,8 @@ export default function ChatWindow() {
         } else if (event.type === "stream_end") {
           if (event.sources) sourcesRef.current = event.sources
           if (event.usage) usageRef.current = event.usage
+          if (event.cached !== undefined) cachedRef.current = event.cached
+          if (event.conversation_id) newConversationId = event.conversation_id
         } else if (event.type === "error") {
           contentRef.current = event.error_detail || "An error occurred"
           setStreamContent(contentRef.current)
@@ -89,6 +90,7 @@ export default function ChatWindow() {
         setIsStreaming(false)
       },
       () => {
+        // Add assistant message locally
         const assistantMessage: ChatMessage = {
           id: assistantId,
           role: "assistant",
@@ -96,10 +98,18 @@ export default function ChatWindow() {
           sources: sourcesRef.current,
           usage: usageRef.current || undefined,
           query_type: queryTypeRef.current,
-          cached: false,
+          cached: cachedRef.current,
           created_at: new Date().toISOString(),
         }
-        store.addMessage(savedConvId, assistantMessage)
+        addLocalMessage(assistantMessage)
+
+        // If this was a new conversation, set its ID + refresh sidebar
+        if (newConversationId && newConversationId !== activeConversationId) {
+          setActiveConversationId(newConversationId)
+        }
+        // Refresh conversation list (updates title, ordering)
+        loadConversations()
+
         setIsStreaming(false)
         setStreamContent("")
         setStatusMessages([])

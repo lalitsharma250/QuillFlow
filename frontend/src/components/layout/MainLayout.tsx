@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -13,24 +14,35 @@ export default function MainLayout() {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const { theme, toggleTheme } = useThemeStore()
-  const { activeConversationId, setActiveConversation, createConversation, deleteConversation, userConversations,} = useChatStore()
-  const conversations = userConversations()
+
+  const conversations = useChatStore((s) => s.conversations)
+  const activeConversationId = useChatStore((s) => s.activeConversationId)
+  const loadConversations = useChatStore((s) => s.loadConversations)
+  const selectConversation = useChatStore((s) => s.selectConversation)
+  const startNewChat = useChatStore((s) => s.startNewChat)
+  const deleteConversation = useChatStore((s) => s.deleteConversation)
+  const resetChat = useChatStore((s) => s.reset)
 
   const isDark = theme === 'dark'
   const isActive = (path: string) => location.pathname === path
 
+  // Load conversations on mount
+  useEffect(() => {
+    loadConversations()
+  }, [loadConversations])
+
   const handleNewChat = () => {
-    createConversation()
+    startNewChat()
     navigate(ROUTES.CHAT)
   }
 
   const handleSelectChat = (id: string) => {
-    setActiveConversation(id)
+    selectConversation(id)
     navigate(ROUTES.CHAT)
   }
 
   const handleLogout = () => {
-    useChatStore.getState().clearActive()
+    resetChat()
     logout()
     navigate(ROUTES.LOGIN, { replace: true })
   }

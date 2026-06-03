@@ -89,7 +89,7 @@ services:
   worker:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.worker
+      dockerfile: docker/Dockerfile
     container_name: quillflow-worker
     env_file:
       - ../.env
