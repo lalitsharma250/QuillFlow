@@ -73,7 +73,10 @@ async def on_worker_startup(ctx: dict) -> None:
 
     # ── Initialize embedding service (Voyage AI) ──────
     ctx["embedder"] = EmbeddingService(model_name=settings.embedding_model_name)
-    await ctx["embedder"].load()
+    try:
+        await ctx["embedder"].load()
+    except Exception as e:
+        logger.error("worker_embedder_degraded", error=str(e)[:200])
 
     logger.info("worker_ready")
 

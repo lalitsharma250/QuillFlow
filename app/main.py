@@ -107,8 +107,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("redis_connected", url=settings.redis_url)
 
     # 4. Embedding model
-    await init_embedder(app)
-    logger.info("embedding_model_loaded", model=settings.embedding_model_name)
+    try:
+        await init_embedder(app)
+        logger.info("embedding_model_loaded", model=settings.embedding_model_name)
+    except Exception as e:
+        logger.error("embedder_init_degraded", error=str(e)[:200])
 
     # 5. Reranker service (Voyage AI — gracefully degrades if unavailable)
     try:
