@@ -101,7 +101,7 @@ class EmbeddingService:
             headers={
                 "Authorization": f"Bearer {self._api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": "QuillFlow/1.0",
+                "User-Agent": "Mozilla/5.0 (compatible; QuillFlow/1.0)",
             },
         )
 
