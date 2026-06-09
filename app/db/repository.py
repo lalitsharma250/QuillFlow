@@ -677,3 +677,269 @@ class AuditRepository:
             for r in records
         ]
     
+# ═══════════════════════════════════════════════════════════
+# Conversation Repository
+# ═══════════════════════════════════════════════════════════
+
+
+from app.db.models import ConversationRecord, MessageRecord
+
+
+class ConversationRepository:
+    """CRUD operations for chat conversations and messages."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    # ── Conversions ────────────────────────────────────
+
+    @staticmethod
+    def _conversation_to_dict(record: ConversationRecord) -> dict:
+        """Convert conversation ORM record to dict (without messages)."""
+        return {
+            "id": record.id,
+            "title": record.title,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+        }
+
+    @staticmethod
+    def _message_to_dict(record: MessageRecord) -> dict:
+        """Convert message ORM record to dict."""
+        return {
+            "id": record.id,
+            "role": record.role,
+            "content": record.content,
+            "sources": record.sources or [],
+            "query_type": record.query_type,
+            "cached": record.cached,
+            "created_at": record.created_at,
+        }
+
+    # ── Create ─────────────────────────────────────────
+
+    async def create_conversation(
+        self,
+        org_id: UUID,
+        user_id: UUID,
+        title: str = "New Chat",
+    ) -> dict:
+        """Create a new empty conversation. Returns conversation dict."""
+        record = ConversationRecord(
+            id=uuid4(),
+            org_id=org_id,
+            user_id=user_id,
+            title=title,
+        )
+        self._session.add(record)
+        await self._session.flush()
+        return self._conversation_to_dict(record)
+
+    async def add_message(
+        self,
+        conversation_id: UUID,
+        role: str,
+        content: str,
+        sources: list | None = None,
+        query_type: str | None = None,
+        cached: bool = False,
+    ) -> dict:
+        """
+        Add a message to a conversation.
+        Also bumps the conversation's updated_at and auto-sets title
+        from the first user message.
+        """
+        record = MessageRecord(
+            id=uuid4(),
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            sources=sources or [],
+            query_type=query_type,
+            cached=cached,
+        )
+        self._session.add(record)
+
+        # Bump conversation updated_at
+        await self._session.execute(
+            update(ConversationRecord)
+            .where(ConversationRecord.id == conversation_id)
+            .values(updated_at=datetime.now(timezone.utc))
+        )
+
+        # Auto-title from first user message
+        if role == "user":
+            await self._maybe_set_title(conversation_id, content)
+
+        await self._session.flush()
+        return self._message_to_dict(record)
+
+    async def _maybe_set_title(self, conversation_id: UUID, content: str) -> None:
+        """Set conversation title from first user message if still default."""
+        stmt = select(ConversationRecord).where(
+            ConversationRecord.id == conversation_id
+        )
+        result = await self._session.execute(stmt)
+        conv = result.scalar_one_or_none()
+
+        if conv and conv.title == "New Chat":
+            # Count existing messages to check if this is the first
+            count_stmt = select(func.count(MessageRecord.id)).where(
+                MessageRecord.conversation_id == conversation_id
+            )
+            count_result = await self._session.execute(count_stmt)
+            msg_count = count_result.scalar_one()
+
+            # If this is the first message (just added), set title
+            if msg_count <= 1:
+                title = content[:50] + ("..." if len(content) > 50 else "")
+                await self._session.execute(
+                    update(ConversationRecord)
+                    .where(ConversationRecord.id == conversation_id)
+                    .values(title=title)
+                )
+
+    # ── Read ───────────────────────────────────────────
+
+    async def list_conversations(
+        self,
+        user_id: UUID,
+        org_id: UUID,
+        limit: int = 50,
+    ) -> list[dict]:
+        """
+        List a user's conversations (most recent first).
+        Does NOT include messages — just metadata for the sidebar.
+        """
+        stmt = (
+            select(ConversationRecord)
+            .where(
+                ConversationRecord.user_id == user_id,
+                ConversationRecord.org_id == org_id,
+            )
+            .order_by(ConversationRecord.updated_at.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        records = result.scalars().all()
+        return [self._conversation_to_dict(r) for r in records]
+
+    async def get_conversation(
+        self,
+        conversation_id: UUID,
+        user_id: UUID,
+        org_id: UUID,
+    ) -> dict | None:
+        """
+        Get a conversation with all its messages.
+        Org + user scoped for isolation.
+        """
+        stmt = (
+            select(ConversationRecord)
+            .options(selectinload(ConversationRecord.messages))
+            .where(
+                ConversationRecord.id == conversation_id,
+                ConversationRecord.user_id == user_id,
+                ConversationRecord.org_id == org_id,
+            )
+        )
+        result = await self._session.execute(stmt)
+        record = result.scalar_one_or_none()
+
+        if record is None:
+            return None
+
+        conv = self._conversation_to_dict(record)
+        conv["messages"] = [
+            self._message_to_dict(m) for m in record.messages
+        ]
+        return conv
+
+    async def get_recent_messages(
+        self,
+        conversation_id: UUID,
+        limit: int = 20,
+    ) -> list[dict]:
+        """
+        Get the most recent messages from a conversation.
+        Used to build history context for the chat pipeline.
+        Returns in chronological order (oldest first).
+        """
+        stmt = (
+            select(MessageRecord)
+            .where(MessageRecord.conversation_id == conversation_id)
+            .order_by(MessageRecord.created_at.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        records = list(result.scalars().all())
+        # Reverse to chronological order
+        records.reverse()
+        return [self._message_to_dict(r) for r in records]
+
+    # ── Update ─────────────────────────────────────────
+
+    async def rename_conversation(
+        self,
+        conversation_id: UUID,
+        user_id: UUID,
+        org_id: UUID,
+        new_title: str,
+    ) -> bool:
+        """Rename a conversation. Returns True if updated."""
+        stmt = (
+            update(ConversationRecord)
+            .where(
+                ConversationRecord.id == conversation_id,
+                ConversationRecord.user_id == user_id,
+                ConversationRecord.org_id == org_id,
+            )
+            .values(
+                title=new_title[:200],
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        result = await self._session.execute(stmt)
+        return result.rowcount > 0
+
+    # ── Delete ─────────────────────────────────────────
+
+    async def delete_conversation(
+        self,
+        conversation_id: UUID,
+        user_id: UUID,
+        org_id: UUID,
+    ) -> bool:
+        """
+        Delete a conversation (cascades to messages).
+        Org + user scoped. Returns True if deleted.
+        """
+        # Verify ownership first
+        stmt = select(ConversationRecord).where(
+            ConversationRecord.id == conversation_id,
+            ConversationRecord.user_id == user_id,
+            ConversationRecord.org_id == org_id,
+        )
+        result = await self._session.execute(stmt)
+        record = result.scalar_one_or_none()
+
+        if record is None:
+            return False
+
+        await self._session.delete(record)  # Cascades to messages
+        return True
+
+    async def verify_ownership(
+        self,
+        conversation_id: UUID,
+        user_id: UUID,
+        org_id: UUID,
+    ) -> bool:
+        """Check if a conversation belongs to this user/org."""
+        stmt = select(ConversationRecord.id).where(
+            ConversationRecord.id == conversation_id,
+            ConversationRecord.user_id == user_id,
+            ConversationRecord.org_id == org_id,
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none() is not None
