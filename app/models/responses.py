@@ -81,6 +81,7 @@ class ChatResponse(BaseModel):
     usage: TokenUsage
     eval_scores: EvalScoreSummary | None = None
     cached: bool = Field(default=False, description="Whether this was served from cache")
+    conversation_id: str | None = Field(default=None) 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -171,9 +172,13 @@ class StreamEvent(BaseModel):
         default=None,
         description="Token usage summary (sent in stream_end)",
     )
-    cached: bool | None = Field(  # ← ADD THIS
+    cached: bool | None = Field(  
         default=None,
         description="Whether this response was served from cache (sent in stream_end)",
+    )
+    conversation_id: str | None = Field( 
+        default=None,
+        description="Conversation ID (sent in stream_start and stream_end)",
     )
     error_detail: str | None = Field(
         default=None,

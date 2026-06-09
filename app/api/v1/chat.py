@@ -1,18 +1,7 @@
 """
 app/api/v1/chat.py
 
-POST /v1/chat — Main query endpoint.
-
-Two modes:
-  1. Streaming (default): Returns SSE stream of events
-  2. Non-streaming: Returns complete JSON response
-
-The endpoint:
-  1. Validates the request
-  2. Authenticates the user
-  3. Creates initial graph state
-  4. Invokes the LangGraph DAG
-  5. Returns the result (streamed or complete)
+POST /v1/chat — Main query endpoint with conversation persistence.
 """
 
 from __future__ import annotations
@@ -31,7 +20,7 @@ from app.dependencies import (
     get_compiled_graph,
     get_db_session,
 )
-from app.db.repository import AuditRepository, LineageRepository
+from app.db.repository import AuditRepository, LineageRepository, ConversationRepository
 from app.graph.builder import create_initial_state
 from app.models.domain import AuthContext
 from app.models.requests import ChatRequest
@@ -52,6 +41,60 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["chat"])
 settings = get_settings()
 
+
+async def _resolve_conversation(
+    repo: ConversationRepository,
+    conversation_id: str | None,
+    auth: AuthContext,
+) -> UUID:
+    """
+    Resolve or create a conversation.
+    Returns the conversation UUID.
+    """
+    if conversation_id:
+        try:
+            conv_uuid = UUID(conversation_id)
+        except ValueError:
+            # Invalid UUID — create new
+            conv = await repo.create_conversation(
+                org_id=auth.org_id, user_id=auth.user_id
+            )
+            return conv["id"]
+
+        # Verify ownership
+        owns = await repo.verify_ownership(
+            conversation_id=conv_uuid,
+            user_id=auth.user_id,
+            org_id=auth.org_id,
+        )
+        if owns:
+            return conv_uuid
+
+    # No ID or not owned — create new conversation
+    conv = await repo.create_conversation(
+        org_id=auth.org_id, user_id=auth.user_id
+    )
+    return conv["id"]
+
+
+async def _build_history_from_db(
+    repo: ConversationRepository,
+    conversation_id: UUID,
+) -> list[dict]:
+    """
+    Build conversation history from DB.
+    Returns list of {role, content} dicts in chronological order.
+    """
+    messages = await repo.get_recent_messages(
+        conversation_id=conversation_id,
+        limit=20,
+    )
+    return [
+        {"role": m["role"], "content": m["content"]}
+        for m in messages
+    ]
+
+
 @router.post("/chat")
 async def chat(
     request: ChatRequest,
@@ -61,14 +104,13 @@ async def chat(
     session: AsyncSession = Depends(get_db_session),
 ):
     """
-    Main query endpoint.
+    Main query endpoint with conversation persistence.
 
-    Accepts a user query, runs it through the QuillFlow DAG,
-    and returns the generated response.
-
-    Supports streaming (SSE) and non-streaming modes.
+    - Resolves/creates conversation
+    - Builds history from DB (single source of truth)
+    - Persists user + assistant messages
+    - Streams or returns complete response
     """
-    # ── Validate graph is available ────────────────────
     compiled_graph = getattr(http_request.app.state, "compiled_graph", None)
     if compiled_graph is None:
         raise HTTPException(
@@ -77,6 +119,23 @@ async def chat(
         )
 
     response_id = str(uuid4())
+    conv_repo = ConversationRepository(session)
+
+    # ── Resolve or create conversation ─────────────────
+    conversation_id = await _resolve_conversation(
+        conv_repo, request.conversation_id, auth
+    )
+
+    # ── Build history from DB (BEFORE saving current msg) ──
+    history = await _build_history_from_db(conv_repo, conversation_id)
+
+    # ── Save user message ──────────────────────────────
+    await conv_repo.add_message(
+        conversation_id=conversation_id,
+        role="user",
+        content=request.query,
+    )
+    await session.commit()
 
     # ── Audit log ──────────────────────────────────────
     audit = AuditRepository(session)
@@ -88,39 +147,43 @@ async def chat(
         resource_id=UUID(response_id),
         detail={
             "query_preview": request.query[:200],
-            "model_preference": request.model_preference,
+            "conversation_id": str(conversation_id),
             "stream": request.stream,
         },
         ip_address=http_request.client.host if http_request.client else None,
     )
     await session.commit()
 
-    # ── Create initial state ───────────────────────────
+    # ── Create initial state (history from DB) ─────────
     initial_state = create_initial_state(
         query=request.query,
         auth=auth,
-        conversation_id=request.conversation_id,
+        conversation_id=str(conversation_id),
         model_preference=request.model_preference,
         include_sources=request.include_sources,
         max_sections=request.max_sections,
         stream=request.stream,
         response_id=response_id,
-        history=[{"role": m.role, "content": m.content} for m in request.history],
+        history=history,  # ← From DB, not frontend
     )
 
     if request.stream:
         return StreamingResponse(
-            _stream_response(compiled_graph, initial_state, auth, response_id, session),
+            _stream_response(
+                compiled_graph, initial_state, auth, response_id,
+                session, conversation_id, conv_repo,
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",  # Disable nginx buffering
+                "X-Accel-Buffering": "no",
             },
         )
     else:
         return await _complete_response(
-            compiled_graph, initial_state, auth, response_id, session, request
+            compiled_graph, initial_state, auth, response_id,
+            session, request, conversation_id, conv_repo,
         )
 
 
@@ -131,17 +194,16 @@ async def _complete_response(
     response_id: str,
     session: AsyncSession,
     request: ChatRequest,
+    conversation_id: UUID,
+    conv_repo: ConversationRepository,
 ) -> ChatResponse:
-    """
-    Non-streaming mode: run graph to completion and return full response.
-    """
+    """Non-streaming mode."""
     try:
         final_state = await graph.ainvoke(initial_state)
     except Exception as e:
         logger.error("graph_execution_failed", error=str(e), response_id=response_id)
         raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)[:200]}")
 
-    # ── Check for errors ───────────────────────────────
     error = final_state.get("error")
     if error and not final_state.get("final_output"):
         raise HTTPException(status_code=422, detail=error)
@@ -149,15 +211,31 @@ async def _complete_response(
     # ── Handle cache hit ───────────────────────────────
     if final_state.get("cache_hit") and final_state.get("cached_response"):
         cached = final_state["cached_response"]
+        content = cached.get("content", "")
+        query_type = cached.get("query_type", "simple")
+        sources_data = cached.get("sources", [])
+
+        # Persist assistant message
+        await conv_repo.add_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=content,
+            sources=sources_data,
+            query_type=query_type,
+            cached=True,
+        )
+        await session.commit()
+
         return ChatResponse(
             response_id=UUID(response_id),
-            content=cached.get("content", ""),
-            query_type=cached.get("query_type", "simple"),
+            content=content,
+            query_type=query_type,
             sources=[
-                SourceReference(**s) for s in cached.get("sources", [])
+                SourceReference(**s) for s in sources_data
             ] if request.include_sources else [],
             usage=TokenUsage(),
             cached=True,
+            conversation_id=str(conversation_id),
         )
 
     # ── Build response from final state ────────────────
@@ -170,7 +248,6 @@ async def _complete_response(
     total_usage = final_state.get("total_usage") or TokenUsage()
     eval_scores = final_state.get("eval_scores")
 
-    # Build sources
     sources = [
         SourceReference(
             filename=rc.chunk.metadata.source_filename,
@@ -182,10 +259,20 @@ async def _complete_response(
         for rc in chunks[:10]
     ]
 
-    # ── Record lineage ─────────────────────────────────
+    # ── Persist assistant message ──────────────────────
+    sources_dicts = [s.model_dump() for s in sources]
+    await conv_repo.add_message(
+        conversation_id=conversation_id,
+        role="assistant",
+        content=content,
+        sources=sources_dicts,
+        query_type=query_type,
+        cached=False,
+    )
+    await session.commit()
+
     await _record_lineage(session, response_id, request.query, chunks)
 
-    # ── Build eval summary ─────────────────────────────
     eval_summary = None
     if eval_scores:
         eval_summary = EvalScoreSummary(
@@ -201,6 +288,7 @@ async def _complete_response(
         usage=total_usage,
         eval_scores=eval_summary,
         cached=False,
+        conversation_id=str(conversation_id),
     )
 
 
@@ -210,46 +298,36 @@ async def _stream_response(
     auth: AuthContext,
     response_id: str,
     session: AsyncSession,
+    conversation_id: UUID,
+    conv_repo: ConversationRepository,
 ):
-    """
-    Streaming mode: run graph and yield SSE events as nodes complete.
-
-    Event sequence:
-      1. stream_start (metadata)
-      2. status_update (pipeline progress)
-      3. content_delta / section_start / section_end (content)
-      4. stream_end (summary with sources and usage)
-    """
-    # ── Stream start ───────────────────────────────────
+    """Streaming mode with message persistence."""
+    # ── Stream start (include conversation_id) ─────────
     yield StreamEvent(
         type=StreamEventType.STREAM_START,
         response_id=UUID(response_id),
+        conversation_id=str(conversation_id),
     ).to_sse()
 
     try:
-        # Run graph with streaming state updates
         final_state = None
 
         async for state_update in graph.astream(initial_state):
-            # astream yields {node_name: state_updates} dicts
             for node_name, node_output in state_update.items():
                 if node_output is None:
                     continue
 
-                # Merge into tracking state
                 if final_state is None:
                     final_state = {**initial_state, **node_output}
                 else:
                     final_state.update(node_output)
 
-                # Emit events based on which node completed
                 async for event in _node_to_events(node_name, node_output, final_state):
                     yield event
 
         if final_state is None:
             final_state = initial_state
 
-        # ── Check for errors ───────────────────────────
         error = final_state.get("error")
         if error and not final_state.get("final_output"):
             yield StreamEvent(
@@ -257,21 +335,16 @@ async def _stream_response(
                 error_detail=error,
             ).to_sse()
             return
-        
-        # ── Stream end ─────────────────────────────────
-        total_usage = final_state.get("total_usage") or TokenUsage()
 
-        # Build sources — handle both cache hit and fresh retrieval
+        # ── Build sources ──────────────────────────────
+        total_usage = final_state.get("total_usage") or TokenUsage()
+        is_cached = final_state.get("cache_hit", False)
         sources: list[SourceReference] = []
-        
-        if final_state.get("cache_hit") and final_state.get("cached_response"):
-            # Cache hit — sources come from cached response
+
+        if is_cached and final_state.get("cached_response"):
             cached = final_state["cached_response"]
-            sources = [
-                SourceReference(**s) for s in cached.get("sources", [])
-            ]
+            sources = [SourceReference(**s) for s in cached.get("sources", [])]
         else:
-            # Fresh retrieval — sources come from retrieved chunks
             chunks = final_state.get("retrieved_chunks", [])
             sources = [
                 SourceReference(
@@ -284,26 +357,44 @@ async def _stream_response(
                 for rc in chunks[:10]
             ]
 
+        # ── Stream end ─────────────────────────────────
         yield StreamEvent(
             type=StreamEventType.STREAM_END,
             sources=sources,
             usage=total_usage,
-            cached=final_state.get("cache_hit", False),
+            cached=is_cached,
+            conversation_id=str(conversation_id),
         ).to_sse()
 
-        # ── Record lineage (after stream completes) ────
-        # Only record if we did fresh retrieval (cache hits skip lineage)
-        if not final_state.get("cache_hit"):
+        # ── Persist assistant message ──────────────────
+        final_content = final_state.get("final_output", "")
+        if is_cached and final_state.get("cached_response"):
+            final_content = final_state["cached_response"].get("content", "")
+
+        query_type = final_state.get("query_type", "simple")
+        if hasattr(query_type, "value"):
+            query_type = query_type.value
+
+        sources_dicts = [s.model_dump() for s in sources]
+
+        await conv_repo.add_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=final_content,
+            sources=sources_dicts,
+            query_type=query_type,
+            cached=is_cached,
+        )
+        await session.commit()
+
+        # ── Record lineage (fresh retrieval only) ──────
+        if not is_cached:
             query = final_state.get("query", "")
             chunks = final_state.get("retrieved_chunks", [])
             await _record_lineage(session, response_id, query, chunks)
 
     except Exception as e:
-        logger.error(
-            "stream_error",
-            error=str(e),
-            response_id=response_id,
-        )
+        logger.error("stream_error", error=str(e), response_id=response_id)
         yield StreamEvent(
             type=StreamEventType.ERROR,
             error_detail=f"Generation failed: {str(e)[:200]}",
@@ -315,10 +406,7 @@ async def _node_to_events(
     node_output: dict,
     full_state: dict,
 ):
-    """
-    Convert a node's output into SSE events.
-    Each node type produces different events.
-    """
+    """Convert a node's output into SSE events."""
     from config.constants import (
         NODE_INPUT_FILTER,
         NODE_CACHE_CHECK,
@@ -349,8 +437,6 @@ async def _node_to_events(
                 type=StreamEventType.STATUS_UPDATE,
                 message="⚡ Found in cache",
             ).to_sse()
-
-            # Stream the cached content as a single delta
             yield StreamEvent(
                 type=StreamEventType.CONTENT_DELTA,
                 content=cached.get("content", ""),
@@ -405,13 +491,11 @@ async def _node_to_events(
     elif node_name == NODE_REDUCER:
         final_output = node_output.get("final_output", "")
         if final_output and not full_state.get("section_drafts"):
-            # Simple query — stream the direct answer
             yield StreamEvent(
                 type=StreamEventType.CONTENT_DELTA,
                 content=final_output,
             ).to_sse()
         elif final_output and full_state.get("section_drafts"):
-            # Complex query — stream the merged/polished version
             yield StreamEvent(
                 type=StreamEventType.STATUS_UPDATE,
                 message="Polishing final document...",

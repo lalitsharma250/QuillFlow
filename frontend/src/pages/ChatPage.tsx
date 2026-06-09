@@ -5,9 +5,14 @@ import { useThemeStore } from '@/stores/themeStore'
 
 export default function ChatPage() {
   const user = useAuthStore((s) => s.user)
-  const conversation = useChatStore((s) => s.activeConversation())
+  const conversations = useChatStore((s) => s.conversations)
+  const activeConversationId = useChatStore((s) => s.activeConversationId)
+  const messages = useChatStore((s) => s.messages)
   const isDark = useThemeStore((s) => s.theme === 'dark')
-  const messageCount = conversation?.messages.length || 0
+
+  const activeConv = conversations.find((c) => c.id === activeConversationId)
+  const title = activeConv?.title || 'New Chat'
+  const messageCount = messages.length
 
   return (
     <div className="flex flex-col h-full">
@@ -16,7 +21,7 @@ export default function ChatPage() {
       }`}>
         <div className="flex items-center gap-3">
           <h1 className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
-            {conversation ? conversation.title : 'New Chat'}
+            {title}
           </h1>
           {messageCount > 0 && (
             <span className={`text-xs ${isDark ? 'text-slate-500' : 'text-gray-400'}`}>

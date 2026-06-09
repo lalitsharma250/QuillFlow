@@ -5,19 +5,22 @@ import type { ChatResponse, StreamEvent } from '@/lib/types'
 const API_URL = import.meta.env.VITE_API_URL || ''
 
 export const chatApi = {
-  query: async (query: string, history: Array<{role: string; content: string}> = []): Promise<ChatResponse> => {
+  query: async (
+    query: string,
+    conversationId: string | null = null,
+  ): Promise<ChatResponse> => {
     const response = await apiClient.post('/v1/chat', {
       query,
       stream: false,
       include_sources: true,
-      history,
+      conversation_id: conversationId,
     })
     return response.data
   },
 
   streamQuery: (
     query: string,
-    history: Array<{role: string; content: string}>,
+    conversationId: string | null,
     onEvent: (event: StreamEvent) => void,
     onError: (error: string) => void,
     onComplete: () => void,
@@ -38,7 +41,7 @@ export const chatApi = {
         query,
         stream: true,
         include_sources: true,
-        history,
+        conversation_id: conversationId,
       }),
       signal: controller.signal,
     })

@@ -516,3 +516,102 @@ class InviteCodeRecord(Base):
 
     def __repr__(self) -> str:
         return f"<InviteCode(code='{self.code}', org={self.org_id}, uses={self.times_used}/{self.max_uses})>"
+    
+# ═══════════════════════════════════════════════════════════
+# Conversations & Messages (Chat History Persistence)
+# ═══════════════════════════════════════════════════════════
+
+
+class ConversationRecord(Base):
+    """
+    A chat conversation owned by a user within an org.
+    Groups related messages together (a single chat thread).
+    """
+
+    __tablename__ = "conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(
+        String(200), nullable=False, default="New Chat"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    messages: Mapped[list[MessageRecord]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="MessageRecord.created_at",
+    )
+
+    __table_args__ = (
+        Index("ix_conversations_user_id", "user_id", "updated_at"),
+        Index("ix_conversations_org_id", "org_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ConversationRecord(id={self.id}, title='{self.title}')>"
+
+
+class MessageRecord(Base):
+    """
+    A single message within a conversation.
+    Stores both user queries and assistant responses.
+    """
+
+    __tablename__ = "messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(
+        String(20), nullable=False,
+        comment="'user' or 'assistant'",
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    sources: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list,
+        comment="Array of source citation objects (for assistant messages)",
+    )
+    query_type: Mapped[str | None] = mapped_column(
+        String(20), nullable=True,
+        comment="'simple' or 'complex' (for assistant messages)",
+    )
+    cached: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    conversation: Mapped[ConversationRecord] = relationship(
+        back_populates="messages"
+    )
+
+    __table_args__ = (
+        Index("ix_messages_conversation_id", "conversation_id", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<MessageRecord(id={self.id}, role='{self.role}')>"

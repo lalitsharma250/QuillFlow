@@ -5,14 +5,14 @@ import { ROUTES } from '@/lib/constants'
 
 export function useKeyboardShortcuts() {
   const navigate = useNavigate()
-  const createConversation = useChatStore((s) => s.createConversation)
+  const startNewChat = useChatStore((s) => s.startNewChat)
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ctrl+K or Cmd+K — New chat
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault()
-        createConversation()
+        startNewChat()
         navigate(ROUTES.CHAT)
       }
 
@@ -25,5 +25,5 @@ export function useKeyboardShortcuts() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [navigate, createConversation])
+  }, [navigate, startNewChat])
 }

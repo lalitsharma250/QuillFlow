@@ -78,6 +78,8 @@ export interface StreamEvent {
   query_type?: string
   sources?: Source[]
   usage?: TokenUsage
+  cached?: boolean
+  conversation_id?: string
   error_detail?: string
 }
 
