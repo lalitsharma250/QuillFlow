@@ -96,11 +96,12 @@ class EmbeddingService:
 
         self._api_key = api_key
         self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(60.0),  # Increased timeout
+            timeout=httpx.Timeout(60.0),
             limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
             headers={
                 "Authorization": f"Bearer {self._api_key}",
                 "Content-Type": "application/json",
+                "User-Agent": "QuillFlow/1.0",
             },
         )
 
@@ -152,6 +153,13 @@ class EmbeddingService:
 
         # Rate limit BEFORE making the request
         await self._rate_limiter.acquire()
+
+        logger.info(
+            "voyage_request_debug",
+            key_prefix=self._api_key[:6] if self._api_key else "NONE",
+            key_length=len(self._api_key) if self._api_key else 0,
+            url=self.VOYAGE_API_URL,
+        )
 
         payload: dict[str, Any] = {
             "input": texts,
