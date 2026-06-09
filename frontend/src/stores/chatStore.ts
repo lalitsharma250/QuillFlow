@@ -33,7 +33,7 @@ function toChatMessage(m: MessageData): ChatMessage {
   }
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
+export const useChatStore = create<ChatState>((set) => ({
   conversations: [],
   activeConversationId: null,
   messages: [],
