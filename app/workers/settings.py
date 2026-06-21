@@ -52,6 +52,9 @@ class WorkerSettings:
     max_jobs = settings.worker_max_jobs
     job_timeout = settings.worker_job_timeout_seconds
     health_check_interval = settings.worker_health_check_interval
+    # Throttle idle queue polling to keep Redis command volume low (Upstash
+    # bills per command). ARQ's 0.5s default polls ~2x/sec around the clock.
+    poll_delay = settings.worker_poll_delay_seconds
 
     # ── Lifecycle hooks ────────────────────────────────
     on_startup = on_worker_startup
