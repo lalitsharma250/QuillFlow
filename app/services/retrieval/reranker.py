@@ -6,8 +6,9 @@ Reranking service using official Voyage AI SDK.
 
 from __future__ import annotations
 
+from typing import Any
+
 import structlog
-import voyageai
 
 from app.models.domain import RetrievedChunk, RetrievalMethod
 from config import get_settings
@@ -23,7 +24,7 @@ class RerankerService:
 
     def __init__(self, model_name: str | None = None) -> None:
         self.model_name = model_name or self.DEFAULT_MODEL
-        self._client: voyageai.AsyncClient | None = None
+        self._client: Any | None = None
         self._is_loaded = False
 
     @property
@@ -46,6 +47,8 @@ class RerankerService:
             return
 
         try:
+            import voyageai
+
             self._client = voyageai.AsyncClient(api_key=api_key)
             self._is_loaded = True
             logger.info(
