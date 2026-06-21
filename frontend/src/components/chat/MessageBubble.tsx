@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '@/lib/types'
@@ -7,6 +8,56 @@ import { useThemeStore } from '@/stores/themeStore'
 
 interface MessageBubbleProps {
   message: ChatMessage
+}
+
+/**
+ * Scroll to and briefly highlight the source row a citation [n] points to.
+ * No-ops gracefully if the source isn't rendered (e.g. uncited-and-collapsed,
+ * or out of range).
+ */
+function focusSource(messageId: string, citationNumber: number) {
+  const el = document.getElementById(`src-${messageId}-${citationNumber - 1}`)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  el.classList.add('citation-flash')
+  window.setTimeout(() => el.classList.remove('citation-flash'), 1200)
+}
+
+/**
+ * Replace [n] tokens inside a markdown text node with clickable citation chips.
+ * Operates only on string children so it never breaks nested markdown nodes.
+ */
+function renderWithCitations(children: ReactNode, messageId: string): ReactNode {
+  if (typeof children !== 'string') {
+    if (Array.isArray(children)) {
+      return children.map((c, i) => <span key={i}>{renderWithCitations(c, messageId)}</span>)
+    }
+    return children
+  }
+
+  const parts: ReactNode[] = []
+  const pattern = /\[(\d+)\]/g
+  let last = 0
+  let match: RegExpExecArray | null
+  let key = 0
+  while ((match = pattern.exec(children)) !== null) {
+    if (match.index > last) parts.push(children.slice(last, match.index))
+    const n = parseInt(match[1], 10)
+    parts.push(
+      <button
+        key={`cite-${key++}`}
+        type="button"
+        onClick={() => focusSource(messageId, n)}
+        className="citation-ref"
+        title={`Jump to source ${n}`}
+      >
+        [{n}]
+      </button>
+    )
+    last = match.index + match[0].length
+  }
+  if (last < children.length) parts.push(children.slice(last))
+  return parts
 }
 
 export default function MessageBubble({ message }: MessageBubbleProps) {
@@ -35,7 +86,13 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             <p className="text-sm whitespace-pre-wrap">{message.content}</p>
           ) : (
             <div className={`text-sm ${isDark ? 'markdown-content' : 'markdown-content-light'}`}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: ({ children }) => <p>{renderWithCitations(children, message.id)}</p>,
+                  li: ({ children }) => <li>{renderWithCitations(children, message.id)}</li>,
+                }}
+              >
                 {message.content}
               </ReactMarkdown>
             </div>
@@ -43,9 +100,13 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         </div>
 
         {/* Sources */}
-        {!isUser && message.sources && (
-  <SourceCard sources={message.sources} answerText={message.content} />
-)}
+        {!isUser && message.sources && message.sources.length > 0 && (
+          <SourceCard
+            sources={message.sources}
+            answerText={message.content}
+            messageId={message.id}
+          />
+        )}
         {/* Metadata */}
         {!isUser && (message.usage || message.cached !== undefined) && (
           <div className="flex items-center gap-3 mt-1.5 px-1 flex-wrap">
