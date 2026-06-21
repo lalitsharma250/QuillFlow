@@ -30,13 +30,12 @@ export const useThemeStore = create<ThemeState>()(
   )
 )
 
-// Initialize theme on load
+// Initialize theme on load. The inline script in index.html applies the class
+// before first paint; this keeps the document class in sync with the store on
+// hydration and applies BOTH branches (the old version only ever added 'light').
 export function initializeTheme() {
-  const stored = localStorage.getItem('quillflow-theme')
-  if (stored) {
-    const parsed = JSON.parse(stored)
-    if (parsed.state?.theme === 'light') {
-      document.documentElement.classList.add('light')
-    }
-  }
+  const theme = useThemeStore.getState().theme
+  const el = document.documentElement
+  el.classList.remove('light', 'dark')
+  el.classList.add(theme)
 }

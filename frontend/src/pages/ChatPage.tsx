@@ -29,7 +29,7 @@ export default function ChatPage() {
             </span>
           )}
         </div>
-        <div className={`flex items-center gap-2 text-xs ${isDark ? 'text-slate-500' : 'text-gray-400'}`}>
+        <div className={`hidden sm:flex items-center gap-2 text-xs ${isDark ? 'text-slate-500' : 'text-gray-400'}`}>
           <span>Ctrl+K for new chat</span>
           <span>•</span>
           <span>{user?.org_name}</span>

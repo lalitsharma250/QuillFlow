@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { documentsApi } from '@/api/documents'
 import { adminApi } from '@/api/admin'
 import { useAuthStore } from '@/stores/authStore'
@@ -21,27 +21,33 @@ export default function DocumentList() {
 
   const pageSize = 20
 
-  const fetchDocuments = async () => {
-    setLoading(true)
+  // `silent` skips the loading skeleton — used by background polling so the
+  // table doesn't flash on every 3s refresh.
+  const fetchDocuments = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const data = await documentsApi.list(page, pageSize, statusFilter || undefined)
       setDocuments(data.documents)
       setTotal(data.total)
     } catch {
-      toast('Failed to load documents', 'error')
+      if (!silent) toast('Failed to load documents', 'error')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
-  }
+  }, [page, statusFilter])
 
-  useEffect(() => { fetchDocuments() }, [page, statusFilter])
+  useEffect(() => { fetchDocuments() }, [fetchDocuments])
 
+  // Poll while any document is processing — but pause when the tab is hidden,
+  // and keep a stable interval (don't tear it down on every data change).
+  const hasProcessing = documents.some(d => d.status === 'processing' || d.status === 'pending')
   useEffect(() => {
-    const hasProcessing = documents.some(d => d.status === 'processing' || d.status === 'pending')
     if (!hasProcessing) return
-    const interval = setInterval(fetchDocuments, 3000)
+    const interval = setInterval(() => {
+      if (!document.hidden) fetchDocuments(true)
+    }, 3000)
     return () => clearInterval(interval)
-  }, [documents])
+  }, [hasProcessing, fetchDocuments])
 
   const handleDelete = async (doc: Document) => {
     if (!confirm(`Delete "${doc.filename}"? This removes its chunks from the vector store.`)) return
@@ -67,13 +73,14 @@ export default function DocumentList() {
   return (
     <div className="p-6">
       {/* Filters */}
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search documents..."
-          className={`flex-1 max-w-sm px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+          placeholder="Search this page..."
+          aria-label="Search documents on current page"
+          className={`flex-1 min-w-[12rem] max-w-sm px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
             isDark
               ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500'
               : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'
@@ -115,10 +122,10 @@ export default function DocumentList() {
           </p>
         </div>
       ) : (
-        <div className={`border rounded-lg overflow-hidden ${
+        <div className={`border rounded-lg overflow-x-auto ${
           isDark ? 'border-slate-800' : 'border-gray-200'
         }`}>
-          <table className="w-full">
+          <table className="w-full min-w-[640px]">
             <thead>
               <tr className={isDark ? 'bg-slate-800/50' : 'bg-gray-50'}>
                 <th className={`text-left px-4 py-3 text-xs font-medium uppercase tracking-wider ${

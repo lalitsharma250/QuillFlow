@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '@/lib/types'
@@ -63,6 +63,17 @@ function renderWithCitations(children: ReactNode, messageId: string): ReactNode 
 export default function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const isDark = useThemeStore((s) => s.theme === 'dark')
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      /* clipboard unavailable (insecure context) — silently ignore */
+    }
+  }
 
   return (
     <div className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -127,6 +138,17 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                 {message.query_type}
               </span>
             )}
+            <button
+              onClick={handleCopy}
+              aria-label="Copy answer to clipboard"
+              className={`text-xs transition-colors ${
+                copied
+                  ? 'text-green-500'
+                  : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-gray-400 hover:text-gray-600'
+              }`}
+            >
+              {copied ? '✓ copied' : '⧉ copy'}
+            </button>
           </div>
         )}
       </div>

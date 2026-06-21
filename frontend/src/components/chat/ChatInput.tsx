@@ -56,6 +56,7 @@ export default function ChatInput({ onSend, disabled = false, placeholder }: Cha
         <button
           onClick={handleSubmit}
           disabled={disabled || !input.trim()}
+          aria-label="Send message"
           className="px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl transition-colors flex-shrink-0"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

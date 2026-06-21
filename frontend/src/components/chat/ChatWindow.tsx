@@ -10,6 +10,7 @@ import { generateId } from "@/lib/utils"
 
 export default function ChatWindow() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamContent, setStreamContent] = useState("")
   const [statusMessages, setStatusMessages] = useState<string[]>([])
@@ -28,8 +29,15 @@ export default function ChatWindow() {
   const setActiveConversationId = useChatStore((s) => s.setActiveConversationId)
   const loadConversations = useChatStore((s) => s.loadConversations)
 
+  // Auto-scroll only when the user is already near the bottom, so reading
+  // earlier messages / sources mid-stream isn't interrupted by a yank-down.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    const el = scrollContainerRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distanceFromBottom < 120) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    }
   }, [messages, streamContent])
 
   const handleSend = (query: string) => {
@@ -123,7 +131,7 @@ export default function ChatWindow() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto px-4 py-6">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-4xl mx-auto space-y-6">
 
           {messages.length === 0 && !isStreaming && (
