@@ -4,7 +4,27 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <meta name="description" content="QuillFlow — intelligent RAG-powered content generation over your documents." />
+    <meta name="theme-color" content="#0f172a" />
+    <title>QuillFlow</title>
+    <!-- Apply persisted theme BEFORE first paint to prevent flash-of-wrong-theme -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('quillflow-theme');
+          var theme = 'dark';
+          if (stored) {
+            var parsed = JSON.parse(stored);
+            if (parsed && parsed.state && parsed.state.theme) theme = parsed.state.theme;
+          }
+          var el = document.documentElement;
+          el.classList.remove('light', 'dark');
+          el.classList.add(theme);
+        } catch (e) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
