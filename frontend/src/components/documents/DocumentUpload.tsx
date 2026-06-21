@@ -138,6 +138,7 @@ export default function DocumentUpload({ onClose, onComplete }: DocumentUploadPr
           </div>
           <button
             onClick={onClose}
+            aria-label="Close upload dialog"
             className={`text-xl ${isDark ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-900'}`}
           >
             ×
