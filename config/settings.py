@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+    # Temporary: enables /v1/diag/* diagnostic endpoints (e.g. Voyage probe).
+    # Keep off in normal operation; set QUILL_ENABLE_DIAG=1 only while debugging.
+    enable_diag: bool = False
 
     # ── LLM Provider ──────────────────────────────────
     llm_provider_base_url: str = "https://openrouter.ai/api/v1"
