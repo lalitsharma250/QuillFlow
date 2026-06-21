@@ -181,7 +181,12 @@ class Settings(BaseSettings):
     worker_concurrency: int = 5
     worker_max_jobs: int = 10
     worker_job_timeout_seconds: int = 3600
-    worker_health_check_interval: int = 30
+    # ARQ health-check key write interval. Higher = fewer Redis commands.
+    worker_health_check_interval: int = 300
+    # ARQ queue poll interval (seconds). ARQ default is 0.5s, which on an
+    # always-on worker means ~2 Redis commands/sec even when idle. 15s cuts
+    # idle Redis traffic ~30x; ingestion jobs simply start up to ~15s later.
+    worker_poll_delay_seconds: float = 15.0
 
     # ── Guardrails ─────────────────────────────────────
     max_plan_sections: int = 5
