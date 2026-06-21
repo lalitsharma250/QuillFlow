@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -26,19 +26,32 @@ export default function MainLayout() {
   const isDark = theme === 'dark'
   const isActive = (path: string) => location.pathname === path
 
+  // Mobile drawer state — sidebar is a slide-over below the `md` breakpoint.
+  const [mobileOpen, setMobileOpen] = useState(false)
+
   // Load conversations on mount
   useEffect(() => {
     loadConversations()
   }, [loadConversations])
 
+  // Close the drawer on Escape.
+  useEffect(() => {
+    if (!mobileOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [mobileOpen])
+
   const handleNewChat = () => {
     startNewChat()
     navigate(ROUTES.CHAT)
+    setMobileOpen(false)
   }
 
   const handleSelectChat = (id: string) => {
     selectConversation(id)
     navigate(ROUTES.CHAT)
+    setMobileOpen(false)
   }
 
   const handleLogout = () => {
@@ -64,8 +77,22 @@ export default function MainLayout() {
 
   return (
     <div className={`h-screen flex ${mainBg}`}>
-      {/* Sidebar */}
-      <aside className={`w-64 flex flex-col border-r ${sidebarBg} ${borderColor}`}>
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar — static on md+, slide-over drawer on mobile */}
+      <aside
+        className={`w-64 flex flex-col border-r ${sidebarBg} ${borderColor}
+          fixed inset-y-0 left-0 z-40 transform transition-transform duration-200 ease-in-out
+          md:static md:translate-x-0
+          ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
+      >
 
         {/* Logo */}
         <div className={`p-4 border-b ${borderColor}`}>
@@ -137,6 +164,7 @@ export default function MainLayout() {
         <nav className={`p-3 border-t ${borderColor} space-y-1`}>
           <Link
             to={ROUTES.CHAT}
+            onClick={() => setMobileOpen(false)}
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
               isActive(ROUTES.CHAT) ? navActiveBg : navInactive
             }`}
@@ -147,6 +175,7 @@ export default function MainLayout() {
 
           <Link
             to={ROUTES.DOCUMENTS}
+            onClick={() => setMobileOpen(false)}
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
               isActive(ROUTES.DOCUMENTS) ? navActiveBg : navInactive
             }`}
@@ -158,6 +187,7 @@ export default function MainLayout() {
           {user?.role === ROLES.ADMIN && (
             <Link
               to={ROUTES.ADMIN}
+              onClick={() => setMobileOpen(false)}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 isActive(ROUTES.ADMIN) ? navActiveBg : navInactive
               }`}
@@ -212,8 +242,26 @@ export default function MainLayout() {
       </aside>
 
       {/* Main Content */}
-      <main className={`flex-1 flex flex-col overflow-hidden ${mainBg}`}>
-        <Outlet />
+      <main className={`flex-1 flex flex-col overflow-hidden min-w-0 ${mainBg}`}>
+        {/* Mobile top bar with hamburger — hidden on md+ */}
+        <div className={`md:hidden flex items-center gap-3 px-4 py-3 border-b ${borderColor} ${sidebarBg}`}>
+          <button
+            onClick={() => setMobileOpen(true)}
+            aria-label="Open menu"
+            className={`p-1.5 rounded-lg ${navInactive}`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
+          <span className={`font-semibold ${textPrimary}`}>QuillFlow</span>
+        </div>
+
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <Outlet />
+        </div>
       </main>
     </div>
   )
