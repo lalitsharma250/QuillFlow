@@ -155,6 +155,7 @@ function SignInForm({ onSuccess }: { onSuccess: (data: any) => void }) {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
             required
+            autoComplete="email"
             className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
         </div>
@@ -167,6 +168,7 @@ function SignInForm({ onSuccess }: { onSuccess: (data: any) => void }) {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
             required
+            autoComplete="current-password"
             className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
         </div>
@@ -212,6 +214,7 @@ function SignInForm({ onSuccess }: { onSuccess: (data: any) => void }) {
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="qf-your-api-key..."
             required
+            autoComplete="off"
             className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
           />
           <button
@@ -248,35 +251,41 @@ function SignUpForm({
   } | null>(null)
   const [verifying, setVerifying] = useState(false)
 
-  // Verify invite code when user finishes typing
-  const verifyInvite = async (code: string) => {
+  // Debounced invite verification. Keyed on inviteCode so each keystroke
+  // cancels the previous pending verify, and a stale flag drops out-of-order
+  // responses (the old onChange-returns-cleanup pattern never cancelled).
+  useEffect(() => {
+    const code = inviteCode.trim()
     if (code.length < 3) {
       setInviteStatus(null)
+      setVerifying(false)
       return
     }
 
+    let stale = false
     setVerifying(true)
-    try {
-      const result = await authApi.verifyInvite(code)
-      setInviteStatus({
-        valid: result.valid,
-        message: result.message,
-        org_name: result.org_name || undefined,
-        role: result.role || undefined,
-      })
-    } catch {
-      setInviteStatus({ valid: false, message: 'Failed to verify code' })
-    } finally {
-      setVerifying(false)
-    }
-  }
+    const timer = setTimeout(async () => {
+      try {
+        const result = await authApi.verifyInvite(code)
+        if (stale) return
+        setInviteStatus({
+          valid: result.valid,
+          message: result.message,
+          org_name: result.org_name || undefined,
+          role: result.role || undefined,
+        })
+      } catch {
+        if (!stale) setInviteStatus({ valid: false, message: 'Failed to verify code' })
+      } finally {
+        if (!stale) setVerifying(false)
+      }
+    }, 500)
 
-  const handleInviteChange = (value: string) => {
-    setInviteCode(value)
-    // Debounce verification
-    const timeout = setTimeout(() => verifyInvite(value), 500)
-    return () => clearTimeout(timeout)
-  }
+    return () => {
+      stale = true
+      clearTimeout(timer)
+    }
+  }, [inviteCode])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -313,9 +322,10 @@ function SignUpForm({
           <input
             type="text"
             value={inviteCode}
-            onChange={(e) => handleInviteChange(e.target.value)}
+            onChange={(e) => setInviteCode(e.target.value)}
             placeholder="INV-xxxxxxxx"
             required
+            autoComplete="off"
             className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent tracking-wider"
           />
           {verifying && (
@@ -336,6 +346,7 @@ function SignUpForm({
             onChange={(e) => setName(e.target.value)}
             placeholder="John Doe"
             required
+            autoComplete="name"
             className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
         </div>
@@ -348,6 +359,7 @@ function SignUpForm({
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
             required
+            autoComplete="email"
             className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
         </div>
@@ -363,6 +375,7 @@ function SignUpForm({
             placeholder="••••••••"
             required
             minLength={8}
+            autoComplete="new-password"
             className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
         </div>
