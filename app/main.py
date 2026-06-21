@@ -109,7 +109,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 4. Embedding model
     try:
         await init_embedder(app)
-        logger.info("embedding_model_loaded", model=settings.embedding_model_name)
+        embedder = app.state.embedder
+        logger.info(
+            "embedding_model_loaded",
+            provider=embedder.provider,
+            model=embedder.model_name,
+            dimensions=embedder.dimensions,
+        )
     except Exception as e:
         logger.error("embedder_init_degraded", error=str(e)[:200])
 

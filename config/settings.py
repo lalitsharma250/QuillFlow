@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+    # Temporary: enables /v1/diag/* diagnostic endpoints (e.g. Voyage probe).
+    # Keep off in normal operation; set QUILL_ENABLE_DIAG=1 only while debugging.
+    enable_diag: bool = False
 
     # ── LLM Provider ──────────────────────────────────
     llm_provider_base_url: str = "https://openrouter.ai/api/v1"
@@ -45,7 +48,12 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 60
     llm_max_tokens_per_request: int = 4096
 
-     # ── Voyage AI (Embeddings + Reranking) ─────────────
+    # ── Embedding Provider ─────────────────────────────
+    # Which backend generates embeddings. "voyage" works locally;
+    # "openai" is used on Render where Voyage is Cloudflare IP-blocked.
+    embedding_provider: str = "voyage"  # "voyage" | "openai"
+
+    # ── Voyage AI (Embeddings + Reranking) ─────────────
     voyage_api_key: SecretStr = Field(
         default=SecretStr(""),
         description="Voyage AI API key (embeddings + reranking)",
@@ -54,6 +62,37 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 1024
     embedding_batch_size: int = 128
     reranker_model_name: str = "rerank-2"
+
+    # ── OpenAI (Embeddings) ────────────────────────────
+    openai_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="OpenAI API key (used when embedding_provider=openai)",
+    )
+    # text-embedding-3-small = 1536 dims; -3-large = 3072 dims
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_dimensions: int = 1536
+
+    @field_validator("embedding_provider")
+    @classmethod
+    def validate_embedding_provider(cls, v: str) -> str:
+        v = v.lower().strip()
+        if v not in ("voyage", "openai"):
+            raise ValueError("embedding_provider must be 'voyage' or 'openai'")
+        return v
+
+    @property
+    def active_embedding_model(self) -> str:
+        """Model name for the configured provider."""
+        if self.embedding_provider == "openai":
+            return self.openai_embedding_model
+        return self.embedding_model_name
+
+    @property
+    def active_embedding_dimensions(self) -> int:
+        """Vector dimensions for the configured provider."""
+        if self.embedding_provider == "openai":
+            return self.openai_embedding_dimensions
+        return self.embedding_dimensions
 
     # ── Qdrant ─────────────────────────────────────────
     # Support both local (host/port) and cloud (URL) configurations

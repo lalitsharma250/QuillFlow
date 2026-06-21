@@ -71,8 +71,11 @@ async def on_worker_startup(ctx: dict) -> None:
             prefer_grpc=settings.qdrant_prefer_grpc,
         )
 
-    # ── Initialize embedding service (Voyage AI) ──────
-    ctx["embedder"] = EmbeddingService(model_name=settings.embedding_model_name)
+    # ── Initialize embedding service ──────────────────
+    # No model_name: let the facade pick the provider-correct model/dims
+    # (OpenAI=text-embedding-3-small, Voyage=voyage-3). Forcing
+    # embedding_model_name here sent "voyage-3" to OpenAI -> 404.
+    ctx["embedder"] = EmbeddingService()
     try:
         await ctx["embedder"].load()
     except Exception as e:

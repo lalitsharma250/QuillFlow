@@ -56,7 +56,9 @@ class VectorStoreService:
         self._client = client
         self._settings = get_settings()
         self._collection_name = self._settings.qdrant_collection_name
-        self._dimensions = self._settings.embedding_dimensions
+        # Provider-aware: Voyage=1024, OpenAI text-embedding-3-small=1536.
+        # The collection MUST match the active embedding provider's dimension.
+        self._dimensions = self._settings.active_embedding_dimensions
 
     # ═══════════════════════════════════════════════════
     # Collection Management
